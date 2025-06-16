@@ -1,0 +1,152 @@
+/* Engineering Calculator Styles */
+
+/* Calculation blocks */
+.calculation-block {
+    position: relative;
+    padding: 15px;
+    border: 1px solid #dee2e6;
+    border-radius: 0.25rem;
+    background-color: #fff;
+}
+
+.calculation-block:hover {
+    border-color: #adb5bd;
+}
+
+/* Block actions (buttons) */
+.block-actions {
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    display: none;
+    z-index: 100;
+}
+
+.calculation-block:hover .block-actions {
+    display: flex;
+}
+
+/* Calculation content area */
+.calculation-content {
+    min-height: 400px;
+    background-color: #f8f9fa;
+}
+
+/* Text block styles */
+.text-block .text-editor {
+    width: 100%;
+    border: none;
+    padding: 5px;
+    resize: vertical;
+    min-height: 50px;
+}
+
+.text-block .text-editor:focus {
+    outline: none;
+    background-color: #f8f9fa;
+}
+
+/* Equation block styles */
+.equation-block .equation-input {
+    width: 100%;
+    font-family: monospace;
+}
+
+.equation-block .equation-preview {
+    padding: 10px;
+    min-height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Calculation block styles */
+.calculation-input-block .calculation-input {
+    font-family: monospace;
+}
+
+.calculation-input-block .calculation-result {
+    min-height: 40px;
+    background-color: #f8f9fa;
+}
+
+/* Plot block styles */
+.plot-block .plot-preview {
+    min-height: 50px;
+    border: 1px dashed #dee2e6;
+    padding: 10px;
+    margin-top: 10px;
+}
+
+.plot-block .plot-preview img {
+    max-width: 100%;
+    height: auto;
+}
+
+/* Variables list */
+#variables-list {
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+/* Toolbar styles */
+.calculation-toolbar {
+    background-color: #f8f9fa;
+}
+
+/* Matrix styles */
+.matrix-input {
+    font-family: monospace;
+    width: 50px;
+    text-align: center;
+}
+
+.matrix-container {
+    display: inline-flex;
+    flex-direction: column;
+    position: relative;
+}
+
+.matrix-row {
+    display: flex;
+}
+
+.matrix-bracket {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 10px;
+    border-top: 2px solid #000;
+    border-bottom: 2px solid #000;
+}
+
+.matrix-bracket-left {
+    left: -10px;
+    border-left: 2px solid #000;
+}
+
+.matrix-bracket-right {
+    right: -10px;
+    border-right: 2px solid #000;
+}
+
+/* Programming block styles */
+.CodeMirror {
+    height: auto;
+    border: 1px solid #dee2e6;
+}
+
+.code-output {
+    background-color: #212529;
+    color: #f8f9fa;
+    font-family: monospace;
+    padding: 10px;
+    border-radius: 0.25rem;
+    white-space: pre-wrap;
+}
+
+/* Main styles (adjustments) */
+.initial-message {
+    text-align: center;
+    padding: 50px 20px;
+}

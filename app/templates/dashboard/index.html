@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Engineering Calculator{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-md-12">
+        <h1>Welcome, {{ current_user.first_name }}</h1>
+        <p class="lead">Let's start calculating and solving engineering problems.</p>
+    </div>
+</div>
+
+<div class="row mb-4">
+    <div class="col-md-4">
+        <div class="card h-100">
+            <div class="card-body">
+                <h5 class="card-title">Quick Actions</h5>
+                <div class="d-grid gap-2">
+                    <a href="{{ url_for('calculations.new_calculation') }}" class="btn btn-primary">
+                        <i class="fas fa-plus-circle"></i> New Calculation
+                    </a>
+                    <a href="{{ url_for('templates.index') }}" class="btn btn-outline-primary">
+                        <i class="fas fa-file-alt"></i> Browse Templates
+                    </a>
+                    <a href="{{ url_for('dashboard.my_calculations') }}" class="btn btn-outline-primary">
+                        <i class="fas fa-list"></i> My Calculations
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-8">
+        <div class="card h-100">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Recent Calculations</h5>
+            </div>
+            <div class="card-body p-0">
+                {% if recent_sheets %}
+                <div class="list-group list-group-flush">
+                    {% for sheet in recent_sheets %}
+                    <a href="{{ url_for('calculations.view_calculation', id=sheet.id) }}" class="list-group-item list-group-item-action">
+                        <div class="d-flex w-100 justify-content-between">
+                            <h5 class="mb-1">{{ sheet.title }}</h5>
+                            <small class="text-muted">{{ sheet.updated_at.strftime('%Y-%m-%d %H:%M') }}</small>
+                        </div>
+                        <p class="mb-1">{{ sheet.description|truncate(100) }}</p>
+                    </a>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <div class="p-4 text-center">
+                    <p class="text-muted">You haven't created any calculations yet.</p>
+                    <a href="{{ url_for('calculations.new_calculation') }}" class="btn btn-primary">
+                        Create Your First Calculation
+                    </a>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Featured Templates</h5>
+            </div>
+            <div class="card-body">
+                <div class="row row-cols-1 row-cols-md-3 g-4">
+                    {% for template in templates[:6] %}
+                    <div class="col">
+                        <div class="card h-100">
+                            <div class="card-body">
+                                <h5 class="card-title">{{ template.name }}</h5>
+                                <h6 class="card-subtitle mb-2 text-muted">{{ template.category }}</h6>
+                                <p class="card-text">{{ template.description|truncate(50) }}</p>
+                            </div>
+                            <div class="card-footer bg-transparent">
+                                <a href="{{ url_for('templates.use_template', id=template.id) }}" class="btn btn-sm btn-primary">Use Template</a>
+                                <a href="{{ url_for('templates.view_template', id=template.id) }}" class="btn btn-sm btn-outline-secondary">View</a>
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+
+                {% if templates|length > 6 %}
+                <div class="text-center mt-3">
+                    <a href="{{ url_for('templates.index') }}" class="btn btn-outline-primary">View All Templates</a>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Tips & Tricks</h5>
+            </div>
+            <div class="card-body">
+                <div id="tipsCarousel" class="carousel slide" data-bs-ride="carousel">
+                    <div class="carousel-inner">
+                        <div class="carousel-item active">
+                            <h5>Unit Conversion</h5>
+                            <p>You can automatically convert units by typing the value with units in your calculations.</p>
+                            <p><code>10 m/s to km/h</code> will convert 10 meters per second to kilometers per hour.</p>
+                        </div>
+                        <div class="carousel-item">
+                            <h5>Variables</h5>
+                            <p>Define variables to make your calculations more readable and reusable.</p>
+                            <p>Variables can be used across multiple calculation blocks.</p>
+                        </div>
+                        <div class="carousel-item">
+                            <h5>LaTeX Equations</h5>
+                            <p>You can use LaTeX notation for complex equations.</p>
+                            <p>Example: <code>\int_{0}^{\pi} \sin(x) dx = 2</code></p>
+                        </div>
+                    </div>
+                    <button class="carousel-control-prev" type="button" data-bs-target="#tipsCarousel" data-bs-slide="prev">
+                        <span class="carousel-control-prev-icon" aria-hidden="true"></span>
+                        <span class="visually-hidden">Previous</span>
+                    </button>
+                    <button class="carousel-control-next" type="button" data-bs-target="#tipsCarousel" data-bs-slide="next">
+                        <span class="carousel-control-next-icon" aria-hidden="true"></span>
+                        <span class="visually-hidden">Next</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

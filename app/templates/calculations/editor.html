@@ -1,0 +1,1301 @@
+{% extends "base.html" %}
+
+{% block title %}
+{% if sheet %}Edit: {{ sheet.title }}{% else %}New Calculation{% endif %} - Engineering Calculator
+{% endblock %}
+
+{% block head %}
+<!-- CodeMirror for code editing -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/theme/eclipse.min.css">
+
+<!-- Additional CSS for mathematical editor -->
+<link rel="stylesheet" href="{{ url_for('static', filename='css/calculator.css') }}">
+<style>
+    .unit-selector-btn {
+        margin-left: 5px;
+    }
+
+    .unit-symbol {
+        font-family: monospace;
+        font-weight: bold;
+    }
+
+    #unit-categories {
+        max-height: 400px;
+        overflow-y: auto;
+    }
+
+    #unit-list {
+        max-height: 400px;
+        overflow-y: auto;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-9">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <div class="input-group w-50">
+                    <input type="text" id="calculation-title" class="form-control"
+                           value="{% if sheet %}{{ sheet.title }}{% else %}Untitled Calculation{% endif %}"
+                           placeholder="Calculation Title">
+                </div>
+                <div class="btn-group">
+                    <button id="btn-save" class="btn btn-primary">
+                        <i class="fas fa-save"></i> Save
+                    </button>
+                    <button id="btn-export-pdf" class="btn btn-secondary">
+                        <i class="fas fa-file-pdf"></i> Export PDF
+                    </button>
+                    <button id="btn-export-word" class="btn btn-secondary">
+                        <i class="fas fa-file-word"></i> Export Word
+                    </button>
+                </div>
+            </div>
+            <div class="card-body p-0">
+                <!-- Calculation editor toolbar -->
+                <div class="calculation-toolbar p-2 border-bottom">
+                    <div class="btn-toolbar" role="toolbar">
+                        <div class="btn-group me-2">
+                            <button type="button" class="btn btn-sm btn-outline-secondary" data-action="add-text">
+                                <i class="fas fa-paragraph"></i> Text
+                            </button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" data-action="add-equation">
+                                <i class="fas fa-square-root-alt"></i> Equation
+                            </button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" data-action="add-calculation">
+                                <i class="fas fa-calculator"></i> Calculation
+                            </button>
+                        </div>
+
+                        <div class="btn-group me-2">
+                            <button type="button" class="btn btn-sm btn-outline-secondary" data-action="add-plot">
+                                <i class="fas fa-chart-line"></i> Plot
+                            </button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" data-action="add-table">
+                                <i class="fas fa-table"></i> Table
+                            </button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" data-action="add-image">
+                                <i class="fas fa-image"></i> Image
+                            </button>
+                        </div>
+
+                        <div class="btn-group me-2">
+                            <button type="button" class="btn btn-sm btn-outline-secondary" data-action="add-solver">
+                                <i class="fas fa-equals"></i> Solver
+                            </button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" data-action="add-matrix">
+                                <i class="fas fa-border-all"></i> Matrix
+                            </button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" data-action="add-programming">
+                                <i class="fas fa-code"></i> Code
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Calculation content area -->
+                <div id="calculation-content" class="calculation-content p-3">
+                    <!-- Blocks will be added here dynamically -->
+                    <div class="alert alert-info initial-message">
+                        <p>Start creating your calculation by adding blocks using the toolbar above.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-3">
+        <div class="card mb-3">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Variables</h5>
+            </div>
+            <div class="card-body p-0">
+                <div class="p-2 border-bottom d-flex">
+                    <button id="btn-add-variable" class="btn btn-sm btn-primary">
+                        <i class="fas fa-plus"></i> Add Variable
+                    </button>
+                </div>
+                <div id="variables-list" class="list-group list-group-flush">
+                    <!-- Variables will be listed here -->
+                    <div class="list-group-item text-center text-muted">
+                        No variables defined yet
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Properties</h5>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label for="calculation-description" class="form-label">Description</label>
+                    <textarea id="calculation-description" class="form-control" rows="3"
+                              placeholder="Add a description for your calculation">{% if sheet %}{{ sheet.description }}{% endif %}</textarea>
+                </div>
+
+                <div class="form-check mb-3">
+                    <input class="form-check-input" type="checkbox" id="is-public"
+                           {% if sheet and sheet.is_public %}checked{% endif %}>
+                    <label class="form-check-label" for="is-public">
+                        Make this calculation public
+                    </label>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label">Created</label>
+                    <p class="text-muted mb-0">
+                        {% if sheet %}
+                            {{ sheet.created_at.strftime('%Y-%m-%d %H:%M') }}
+                        {% else %}
+                            Just now
+                        {% endif %}
+                    </p>
+                </div>
+
+                {% if sheet %}
+                <div class="mb-3">
+                    <label class="form-label">Last Updated</label>
+                    <p class="text-muted mb-0">
+                        {{ sheet.updated_at.strftime('%Y-%m-%d %H:%M') }}
+                    </p>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label">Version</label>
+                    <p class="text-muted mb-0">
+                        {{ sheet.version }}
+                    </p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Templates for dynamic content -->
+<!-- Text Block Template -->
+<template id="template-text-block">
+    <div class="calculation-block text-block mb-3" data-type="text">
+        <div class="block-actions">
+            <button class="btn btn-sm btn-light move-block" title="Move">
+                <i class="fas fa-arrows-alt"></i>
+            </button>
+            <button class="btn btn-sm btn-danger delete-block" title="Delete">
+                <i class="fas fa-trash"></i>
+            </button>
+        </div>
+        <div class="block-content">
+            <textarea class="form-control text-editor" rows="3" placeholder="Enter text content here..."></textarea>
+        </div>
+    </div>
+</template>
+
+<!-- Equation Block Template -->
+<template id="template-equation-block">
+    <div class="calculation-block equation-block mb-3" data-type="equation">
+        <div class="block-actions">
+            <button class="btn btn-sm btn-light move-block" title="Move">
+                <i class="fas fa-arrows-alt"></i>
+            </button>
+            <button class="btn btn-sm btn-danger delete-block" title="Delete">
+                <i class="fas fa-trash"></i>
+            </button>
+        </div>
+        <div class="block-content">
+            <input type="text" class="form-control equation-input" placeholder="Enter LaTeX equation here (e.g., E = mc^2)">
+            <div class="equation-preview mt-2"></div>
+        </div>
+    </div>
+</template>
+
+<!-- Calculation Block Template -->
+<template id="template-calculation-block">
+    <div class="calculation-block calculation-input-block mb-3" data-type="calculation">
+        <div class="block-actions">
+            <button class="btn btn-sm btn-light move-block" title="Move">
+                <i class="fas fa-arrows-alt"></i>
+            </button>
+            <button class="btn btn-sm btn-danger delete-block" title="Delete">
+                <i class="fas fa-trash"></i>
+            </button>
+        </div>
+        <div class="block-content">
+            <div class="input-group mb-2">
+                <input type="text" class="form-control calculation-input" placeholder="Enter calculation (e.g., 2+2)">
+                <button class="btn btn-primary calculate-btn">Calculate</button>
+            </div>
+            <div class="calculation-result p-2 border rounded"></div>
+        </div>
+    </div>
+</template>
+
+<!-- Plot Block Template -->
+<template id="template-plot-block">
+    <div class="calculation-block plot-block mb-3" data-type="plot">
+        <div class="block-actions">
+            <button class="btn btn-sm btn-light move-block" title="Move">
+                <i class="fas fa-arrows-alt"></i>
+            </button>
+            <button class="btn btn-sm btn-danger delete-block" title="Delete">
+                <i class="fas fa-trash"></i>
+            </button>
+        </div>
+        <div class="block-content">
+            <div class="row mb-2">
+                <div class="col">
+                    <select class="form-select plot-type">
+                        <option value="line">Line Plot</option>
+                        <option value="scatter">Scatter Plot</option>
+                        <option value="bar">Bar Chart</option>
+                    </select>
+                </div>
+                <div class="col">
+                    <input type="text" class="form-control plot-title" placeholder="Plot Title">
+                </div>
+            </div>
+            <div class="row mb-2">
+                <div class="col">
+                    <input type="text" class="form-control plot-x-label" placeholder="X-Axis Label">
+                </div>
+                <div class="col">
+                    <input type="text" class="form-control plot-y-label" placeholder="Y-Axis Label">
+                </div>
+            </div>
+            <div class="row mb-2">
+                <div class="col">
+                    <textarea class="form-control plot-data" rows="3"
+                              placeholder="Enter data in format x,y (one pair per line)"></textarea>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col">
+                    <button class="btn btn-primary generate-plot-btn">Generate Plot</button>
+                </div>
+            </div>
+            <div class="plot-preview mt-2 text-center"></div>
+        </div>
+    </div>
+</template>
+
+<!-- Modal templates -->
+<!-- Enhanced Variable Modal -->
+<div class="modal fade" id="variable-modal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Add/Edit Variable</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label for="variable-name" class="form-label">Variable Name</label>
+                    <input type="text" class="form-control" id="variable-name" placeholder="e.g., radius">
+                    <small class="text-muted">Use letters, numbers, and underscores. No spaces.</small>
+                </div>
+                <div class="mb-3">
+                    <label for="variable-value" class="form-label">Value</label>
+                    <input type="text" class="form-control" id="variable-value" placeholder="e.g., 10">
+                </div>
+                <div class="mb-3">
+                    <label for="variable-unit" class="form-label">Unit (optional)</label>
+                    <div class="input-group">
+                        <input type="text" class="form-control" id="variable-unit" placeholder="e.g., m">
+                        <button class="btn btn-outline-secondary" type="button" id="unit-selector-btn">
+                            <i class="fas fa-ruler"></i> Select
+                        </button>
+                    </div>
+                    <small class="text-muted">The unit will be used for calculations and display.</small>
+                </div>
+                <div class="mb-3">
+                    <label for="variable-description" class="form-label">Description (optional)</label>
+                    <input type="text" class="form-control" id="variable-description" placeholder="e.g., Radius of the circle">
+                </div>
+
+                <!-- Preview section -->
+                <div class="card mt-4">
+                    <div class="card-header">
+                        <h6 class="mb-0">Preview</h6>
+                    </div>
+                    <div class="card-body">
+                        <div class="d-flex align-items-center" id="variable-preview">
+                            <span class="variable-name me-2">variableName</span> =
+                            <span class="variable-value ms-2">value</span>
+                            <span class="variable-unit ms-1">unit</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="save-variable-btn">Save</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Unit Selector Modal Template -->
+<div class="modal fade" id="unit-selector-modal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Select Unit</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <input type="text" class="form-control" id="unit-search" placeholder="Search units...">
+                </div>
+
+                <div class="row">
+                    <div class="col-md-4">
+                        <div class="list-group" id="unit-categories">
+                            <a href="#" class="list-group-item list-group-item-action active" data-category="length">Length</a>
+                            <a href="#" class="list-group-item list-group-item-action" data-category="mass">Mass</a>
+                            <a href="#" class="list-group-item list-group-item-action" data-category="time">Time</a>
+                            <a href="#" class="list-group-item list-group-item-action" data-category="temperature">Temperature</a>
+                            <a href="#" class="list-group-item list-group-item-action" data-category="force">Force</a>
+                            <a href="#" class="list-group-item list-group-item-action" data-category="pressure">Pressure</a>
+                            <a href="#" class="list-group-item list-group-item-action" data-category="energy">Energy</a>
+                            <a href="#" class="list-group-item list-group-item-action" data-category="power">Power</a>
+                            <a href="#" class="list-group-item list-group-item-action" data-category="electric_current">Electric Current</a>
+                            <a href="#" class="list-group-item list-group-item-action" data-category="voltage">Voltage</a>
+                            <a href="#" class="list-group-item list-group-item-action" data-category="resistance">Resistance</a>
+                            <a href="#" class="list-group-item list-group-item-action" data-category="frequency">Frequency</a>
+                            <a href="#" class="list-group-item list-group-item-action" data-category="angle">Angle</a>
+                            <a href="#" class="list-group-item list-group-item-action" data-category="area">Area</a>
+                            <a href="#" class="list-group-item list-group-item-action" data-category="volume">Volume</a>
+                            <a href="#" class="list-group-item list-group-item-action" data-category="velocity">Velocity</a>
+                            <a href="#" class="list-group-item list-group-item-action" data-category="acceleration">Acceleration</a>
+                            <a href="#" class="list-group-item list-group-item-action" data-category="density">Density</a>
+                        </div>
+                    </div>
+                    <div class="col-md-8">
+                        <div class="list-group" id="unit-list">
+                            <!-- Units will be populated based on selected category -->
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mt-3">
+                    <div class="input-group">
+                        <span class="input-group-text">Custom Unit</span>
+                        <input type="text" class="form-control" id="custom-unit-input" placeholder="Enter custom unit (e.g., kg·m/s²)">
+                        <button class="btn btn-outline-secondary" type="button" id="use-custom-unit">Use</button>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<!-- CodeMirror JS -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/javascript/javascript.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/python/python.min.js"></script>
+
+<!-- Math.js for calculations -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mathjs/11.8.0/math.min.js"></script>
+
+<!-- Sortable.js for drag and drop -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
+
+<!-- Calculator JS -->
+<script>
+    // Global variables
+    let calculationData = {
+        id: {% if sheet %}{{ sheet.id }}{% else %}null{% endif %},
+        title: '{% if sheet %}{{ sheet.title }}{% else %}Untitled Calculation{% endif %}',
+        description: '{% if sheet %}{{ sheet.description }}{% else %}{% endif %}',
+        is_public: {% if sheet and sheet.is_public %}true{% else %}false{% endif %},
+        content: {
+            blocks: []
+        },
+        variables: {}
+    };
+
+    {% if sheet %}
+    // Load existing sheet data
+    try {
+        calculationData.content = JSON.parse('{{ sheet.content|safe }}');
+        calculationData.variables = JSON.parse('{{ sheet.variables|safe }}');
+    } catch (e) {
+        console.error('Error parsing sheet data:', e);
+    }
+    {% endif %}
+
+    // Initialize when document is ready
+    $(document).ready(function() {
+        // Initialize the calculator editor
+        initCalculator();
+
+        // Load existing content if any
+        if (calculationData.content && calculationData.content.blocks) {
+            loadCalculationContent(calculationData.content);
+        }
+
+        // Load variables if any
+        if (calculationData.variables) {
+  loadVariables(calculationData.variables);
+        }
+    });
+
+    // Initialize calculator editor
+    function initCalculator() {
+        // Initialize toolbar buttons
+        initToolbar();
+
+        // Initialize variable management
+        initEnhancedVariableModal();
+
+        // Initialize save functionality
+        initSaveAndExport();
+
+        // Make blocks sortable
+        new Sortable(document.getElementById('calculation-content'), {
+            handle: '.move-block',
+            animation: 150
+        });
+    }
+
+    // Initialize toolbar buttons
+    function initToolbar() {
+        // Add event listeners for toolbar buttons
+        $('.calculation-toolbar [data-action]').click(function() {
+            const action = $(this).data('action');
+
+            // Remove initial message if present
+            $('.initial-message').remove();
+
+            switch (action) {
+                case 'add-text':
+                    addTextBlock();
+                    break;
+
+                case 'add-equation':
+                    addEquationBlock();
+                    break;
+
+                case 'add-calculation':
+                    addCalculationBlock();
+                    break;
+
+                case 'add-plot':
+                    addPlotBlock();
+                    break;
+
+                case 'add-table':
+                    // TODO: Implement table block
+                    alert('Table block not implemented yet');
+                    break;
+
+                case 'add-image':
+                    // TODO: Implement image block
+                    alert('Image block not implemented yet');
+                    break;
+
+                case 'add-solver':
+                    // TODO: Implement solver block
+                    alert('Solver block not implemented yet');
+                    break;
+
+                case 'add-matrix':
+                    // TODO: Implement matrix block
+                    alert('Matrix block not implemented yet');
+                    break;
+
+                case 'add-programming':
+                    // TODO: Implement programming block
+                    alert('Programming block not implemented yet');
+                    break;
+            }
+        });
+
+        // Global event delegation for block actions
+        $('#calculation-content').on('click', '.delete-block', function() {
+            $(this).closest('.calculation-block').remove();
+            updateCalculationData();
+        });
+    }
+
+    // Add a text block to the editor
+    function addTextBlock(content = '') {
+        const template = document.getElementById('template-text-block');
+        const clone = document.importNode(template.content, true);
+
+        // Set content if provided
+        if (content) {
+            $(clone).find('.text-editor').val(content);
+        }
+
+        // Add event listeners
+        $(clone).find('.text-editor').on('input', function() {
+            updateCalculationData();
+        });
+
+        // Append to content area
+        $('#calculation-content').append(clone);
+        updateCalculationData();
+    }
+
+    // Add an equation block to the editor
+    function addEquationBlock(latex = '') {
+        const template = document.getElementById('template-equation-block');
+        const clone = document.importNode(template.content, true);
+
+        // Set content if provided
+        if (latex) {
+            $(clone).find('.equation-input').val(latex);
+        }
+
+        // Add event listeners
+        $(clone).find('.equation-input').on('input', function() {
+            const latex = $(this).val();
+            const preview = $(this).siblings('.equation-preview');
+
+            // Render LaTeX equation
+            preview.html('\\[' + latex + '\\]');
+            MathJax.typeset([preview[0]]);
+
+            updateCalculationData();
+        });
+
+        // Append to content area
+        $('#calculation-content').append(clone);
+        updateCalculationData();
+    }
+
+    // Function to add a calculation block to the editor (Updated for unit support)
+function addCalculationBlock(input = '', result = '') {
+    const template = document.getElementById('template-calculation-block');
+    const clone = document.importNode(template.content, true);
+
+    // Set content if provided
+    if (input) {
+        $(clone).find('.calculation-input').val(input);
+    }
+
+    if (result) {
+        $(clone).find('.calculation-result').html(result);
+    }
+
+    // Add event listeners
+    $(clone).find('.calculate-btn').on('click', function() {
+        const inputField = $(this).closest('.block-content').find('.calculation-input');
+        const resultField = $(this).closest('.block-content').find('.calculation-result');
+
+        const expression = inputField.val();
+
+        // Calculate the result
+        calculateExpression(expression, resultField);
+
+        updateCalculationData();
+    });
+
+    // Append to content area
+    $('#calculation-content').append(clone);
+    updateCalculationData();
+}
+
+    // Add a plot block to the editor
+    function addPlotBlock(plotData = null) {
+        const template = document.getElementById('template-plot-block');
+        const clone = document.importNode(template.content, true);
+
+        // Set content if provided
+        if (plotData) {
+            $(clone).find('.plot-type').val(plotData.type);
+            $(clone).find('.plot-title').val(plotData.title);
+            $(clone).find('.plot-x-label').val(plotData.x_label);
+            $(clone).find('.plot-y-label').val(plotData.y_label);
+            $(clone).find('.plot-data').val(plotData.data);
+
+            if (plotData.image) {
+                $(clone).find('.plot-preview').html(`<img src="${plotData.image}" class="img-fluid">`);
+            }
+        }
+
+        // Add event listeners
+        $(clone).find('.generate-plot-btn').on('click', function() {
+            const blockContent = $(this).closest('.block-content');
+            const plotType = blockContent.find('.plot-type').val();
+            const title = blockContent.find('.plot-title').val();
+            const xLabel = blockContent.find('.plot-x-label').val();
+            const yLabel = blockContent.find('.plot-y-label').val();
+            const dataText = blockContent.find('.plot-data').val();
+            const previewDiv = blockContent.find('.plot-preview');
+
+            // Parse data
+            const dataPoints = parseDataPoints(dataText);
+
+            if (dataPoints.length === 0) {
+                previewDiv.html('<div class="alert alert-danger">Invalid data format. Use x,y pairs (one per line).</div>');
+                return;
+            }
+
+            // Generate plot
+            generatePlot(plotType, dataPoints, title, xLabel, yLabel, previewDiv);
+
+            updateCalculationData();
+        });
+
+        // Append to content area
+        $('#calculation-content').append(clone);
+        updateCalculationData();
+    }
+
+    // Calculate a mathematical expression (Updated for unit support)
+function calculateExpression(expression, resultField) {
+    try {
+        // Replace variable names with their values
+        let processedExpression = expression;
+
+        // Create a variables object with value and unit information
+        const variablesForAPI = {};
+
+        // Apply variables
+        for (const [name, varData] of Object.entries(calculationData.variables)) {
+            const regex = new RegExp('\\b' + name + '\\b', 'g');
+            processedExpression = processedExpression.replace(regex, varData.value);
+
+            // Add to variables for API with unit information
+            variablesForAPI[name] = {
+                value: varData.value,
+                unit: varData.unit || ''
+            };
+        }
+
+        // Send to API for evaluation with units
+        fetch('/calculations/api/evaluate', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                expression: expression,
+                variables: variablesForAPI
+            }),
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                // Handle the result with unit
+                const result = data.result;
+
+                if (result.unit) {
+                    // Display result with unit
+                    resultField.html(`<strong>Result:</strong> ${result.value} ${result.unit}`);
+                } else {
+                    // Display result without unit
+                    resultField.html(`<strong>Result:</strong> ${result.value}`);
+                }
+            } else {
+                resultField.html(`<div class="text-danger"><strong>Error:</strong> ${data.message}</div>`);
+            }
+        })
+        .catch(error => {
+            // Fallback to client-side calculation if API fails
+            try {
+                // Evaluate using math.js
+                const result = math.evaluate(processedExpression);
+
+                // Format and display the result
+                if (typeof result === 'number') {
+                    resultField.html(`<strong>Result:</strong> ${result}`);
+                } else {
+                    resultField.html(`<strong>Result:</strong> ${JSON.stringify(result)}`);
+                }
+            } catch (fallbackError) {
+                resultField.html(`<div class="text-danger"><strong>Error:</strong> ${fallbackError.message}</div>`);
+            }
+        });
+    } catch (error) {
+        resultField.html(`<div class="text-danger"><strong>Error:</strong> ${error.message}</div>`);
+    }
+}
+
+    // Generate a plot based on input data
+    function generatePlot(plotType, dataPoints, title, xLabel, yLabel, previewDiv) {
+        // For this implementation, we'll make an API call to the backend
+        // to generate the plot and return an image
+
+        // Extract x and y values
+        const xValues = dataPoints.map(point => point.x);
+        const yValues = dataPoints.map(point => point.y);
+
+        // Call the plot API
+        fetch('/api/plot', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                type: plotType,
+                x_data: xValues,
+                y_data: yValues,
+                title: title,
+                x_label: xLabel,
+                y_label: yLabel
+            }),
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                // Display the plot image
+                previewDiv.html(`<img src="${data.image_data}" class="img-fluid">`);
+            } else {
+                previewDiv.html(`<div class="alert alert-danger">Error: ${data.message}</div>`);
+            }
+        })
+        .catch(error => {
+            previewDiv.html(`<div class="alert alert-danger">Error: ${error.message}</div>`);
+        });
+    }
+
+    // Parse data points from text input
+    function parseDataPoints(dataText) {
+        const lines = dataText.trim().split('\n');
+        const dataPoints = [];
+
+        for (const line of lines) {
+            const parts = line.trim().split(',');
+
+            if (parts.length >= 2) {
+                const x = parseFloat(parts[0]);
+                const y = parseFloat(parts[1]);
+
+                if (!isNaN(x) && !isNaN(y)) {
+                    dataPoints.push({ x, y });
+                }
+            }
+        }
+
+        return dataPoints;
+    }
+
+    function initEnhancedVariableModal() {
+        // Initialize the unit selector for the variable unit field
+        const unitSelector = initUnitSelector('variable-unit', function(selectedUnit) {
+            $('#variable-unit').val(selectedUnit);
+            updateVariablePreview();
+        });
+
+        // Connect the unit selector button to the selector component
+        $('#unit-selector-btn').click(function() {
+            unitSelector.showSelector();
+        });
+
+        // Live preview of the variable
+        $('#variable-name, #variable-value, #variable-unit').on('input', function() {
+            updateVariablePreview();
+        });
+
+        // Update the variable preview
+        function updateVariablePreview() {
+            const name = $('#variable-name').val() || 'variableName';
+            const value = $('#variable-value').val() || 'value';
+            const unit = $('#variable-unit').val() || '';
+
+            $('#variable-preview .variable-name').text(name);
+            $('#variable-preview .variable-value').text(value);
+
+            if (unit) {
+                $('#variable-preview .variable-unit').text(unit).show();
+            } else {
+                $('#variable-preview .variable-unit').hide();
+            }
+        }
+
+        // Validate variable name
+        $('#variable-name').on('input', function() {
+            const name = $(this).val();
+            const isValid = /^[a-zA-Z][a-zA-Z0-9_]*$/.test(name);
+
+            if (!isValid && name) {
+                $(this).addClass('is-invalid');
+                if (!$(this).next('.invalid-feedback').length) {
+                    $(this).after('<div class="invalid-feedback">Variable name must start with a letter and contain only letters, numbers, and underscores.</div>');
+                }
+            } else {
+                $(this).removeClass('is-invalid');
+                $(this).next('.invalid-feedback').remove();
+            }
+        });
+
+        // Enhance the save button to include validation
+        const originalSaveHandler = $('#save-variable-btn').prop('onclick');
+        $('#save-variable-btn').off('click').on('click', function() {
+            const name = $('#variable-name').val().trim();
+            const value = $('#variable-value').val().trim();
+
+            // Basic validation
+            if (!name) {
+                alert('Variable name is required');
+                return;
+            }
+
+            if (!value) {
+                alert('Variable value is required');
+                return;
+            }
+
+            // Validate variable name format
+            if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(name)) {
+                alert('Variable name must start with a letter and contain only letters, numbers, and underscores');
+                return;
+            }
+
+            // Validate numerical value if it doesn't contain a variable reference
+            if (!/[a-zA-Z]/.test(value)) {
+                try {
+                    // Try to parse as a number
+                    const numValue = parseFloat(value);
+                    if (isNaN(numValue)) {
+                        alert('Variable value must be a number or an expression');
+                        return;
+                    }
+                } catch (e) {
+                    alert('Invalid variable value');
+                    return;
+                }
+            }
+
+            // Apply the original save handler
+            if (originalSaveHandler) {
+                originalSaveHandler.call(this);
+            } else {
+                // Default save behavior if no original handler
+                const unit = $('#variable-unit').val().trim();
+                const description = $('#variable-description').val().trim();
+
+                // Save the variable
+                calculationData.variables[name] = {
+                    value: value,
+                    unit: unit,
+                    description: description
+                };
+
+                // Update the variables list
+                updateVariablesList();
+
+                // Hide modal
+                bootstrap.Modal.getInstance(document.getElementById('variable-modal')).hide();
+
+                // Update calculation data
+                updateCalculationData();
+            }
+        });
+
+        // Initialize the preview
+        updateVariablePreview();
+    }
+
+    // Edit variable
+    $('#variables-list').on('click', '.edit-variable', function() {
+        const name = $(this).data('name');
+        const variable = calculationData.variables[name];
+
+        if (variable) {
+            // Populate modal inputs
+            $('#variable-name').val(name);
+            $('#variable-value').val(variable.value);
+            $('#variable-unit').val(variable.unit || '');
+            $('#variable-description').val(variable.description || '');
+
+            // Show modal
+            const modal = new bootstrap.Modal(document.getElementById('variable-modal'));
+            modal.show();
+        }
+    });
+
+    // Delete variable
+    $('#variables-list').on('click', '.delete-variable', function() {
+        const name = $(this).data('name');
+
+        if (confirm(`Are you sure you want to delete the variable "${name}"?`)) {
+            delete calculationData.variables[name];
+            updateVariablesList();
+            updateCalculationData();
+        }
+    });
+
+// Update the variables list in the UI (with improved unit display)
+function updateVariablesList() {
+    const list = $('#variables-list');
+    list.empty();
+
+    if (Object.keys(calculationData.variables).length === 0) {
+        list.html('<div class="list-group-item text-center text-muted">No variables defined yet</div>');
+        return;
+    }
+
+    // Sort variables by name
+    const sortedNames = Object.keys(calculationData.variables).sort();
+
+    for (const name of sortedNames) {
+        const variable = calculationData.variables[name];
+
+        let variableText = `<strong>${name}</strong> = ${variable.value}`;
+        if (variable.unit) {
+            variableText += ` ${variable.unit}`;
+        }
+
+        if (variable.description) {
+            variableText += `<br><small class="text-muted">${variable.description}</small>`;
+        }
+
+        const item = $(`
+            <div class="list-group-item">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>${variableText}</div>
+                    <div class="btn-group btn-group-sm">
+                        <button class="btn btn-outline-primary edit-variable" data-name="${name}">
+                            <i class="fas fa-edit"></i>
+                        </button>
+                        <button class="btn btn-outline-danger delete-variable" data-name="${name}">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `);
+
+        list.append(item);
+    }
+}
+
+    // Initialize save and export functionality
+    function initSaveAndExport() {
+        // Save button
+        $('#btn-save').click(function() {
+            saveCalculation();
+        });
+
+        // Export buttons
+        $('#btn-export-pdf').click(function() {
+            if (calculationData.id) {
+                window.location.href = `/calculations/${calculationData.id}/export/pdf`;
+            } else {
+                alert('Please save the calculation first');
+            }
+        });
+
+        $('#btn-export-word').click(function() {
+            if (calculationData.id) {
+                window.location.href = `/calculations/${calculationData.id}/export/word`;
+            } else {
+                alert('Please save the calculation first');
+            }
+        });
+
+        // Title and description changes
+        $('#calculation-title').on('input', function() {
+            calculationData.title = $(this).val();
+        });
+
+        $('#calculation-description').on('input', function() {
+            calculationData.description = $(this).val();
+        });
+
+        $('#is-public').on('change', function() {
+            calculationData.is_public = $(this).prop('checked');
+        });
+    }
+
+    // Save the calculation to the server
+    function saveCalculation() {
+        const endpoint = calculationData.id ?
+                        `/calculations/${calculationData.id}/edit` :
+                        '/calculations/new';
+
+        const method = calculationData.id ? 'PUT' : 'POST';
+
+        fetch(endpoint, {
+            method: method,
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                title: calculationData.title,
+                description: calculationData.description,
+                is_public: calculationData.is_public,
+                content: calculationData.content,
+                variables: calculationData.variables
+            }),
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                if (!calculationData.id && data.id) {
+                    // Update URL for new calculation
+                    calculationData.id = data.id;
+                    history.replaceState(null, '', `/calculations/${data.id}/edit`);
+                }
+
+                alert('Calculation saved successfully');
+            } else {
+                alert(`Error: ${data.message}`);
+            }
+        })
+        .catch(error => {
+            alert(`Error: ${error.message}`);
+        });
+    }
+
+    // Update the calculation data model from UI (preserving unit info)
+function updateCalculationData() {
+    const blocks = [];
+
+    // Process each block in the editor
+    $('.calculation-block').each(function() {
+        const blockType = $(this).data('type');
+        const blockContent = $(this).find('.block-content');
+
+        let blockData = {
+            type: blockType,
+            data: {}
+        };
+
+        switch (blockType) {
+            case 'text':
+                blockData.data.text = blockContent.find('.text-editor').val();
+                break;
+
+            case 'equation':
+                blockData.data.latex = blockContent.find('.equation-input').val();
+                break;
+
+            case 'calculation':
+                blockData.data.input = blockContent.find('.calculation-input').val();
+                blockData.data.result = blockContent.find('.calculation-result').html();
+                break;
+
+            case 'plot':
+                blockData.data.type = blockContent.find('.plot-type').val();
+                blockData.data.title = blockContent.find('.plot-title').val();
+                blockData.data.x_label = blockContent.find('.plot-x-label').val();
+                blockData.data.y_label = blockContent.find('.plot-y-label').val();
+                blockData.data.data = blockContent.find('.plot-data').val();
+
+                // Save the image if it exists
+                const img = blockContent.find('.plot-preview img');
+                if (img.length > 0) {
+                    blockData.data.image = img.attr('src');
+                }
+                break;
+        }
+
+        blocks.push(blockData);
+    });
+
+    // Update calculation data
+    calculationData.content.blocks = blocks;
+}
+
+
+    // Load calculation content from data model
+    function loadCalculationContent(content) {
+        $('#calculation-content').empty();
+
+        if (!content.blocks || content.blocks.length === 0) {
+            $('#calculation-content').html(`
+                <div class="alert alert-info initial-message">
+                    <p>Start creating your calculation by adding blocks using the toolbar above.</p>
+                </div>
+            `);
+            return;
+        }
+
+        // Add each block to the editor
+        for (const block of content.blocks) {
+            switch (block.type) {
+                case 'text':
+                    addTextBlock(block.data.text || '');
+                    break;
+
+                case 'equation':
+                    addEquationBlock(block.data.latex || '');
+                    break;
+
+                case 'calculation':
+                    addCalculationBlock(block.data.input || '', block.data.result || '');
+                    break;
+
+                case 'plot':
+                    addPlotBlock(block.data || null);
+                    break;
+            }
+        }
+    }
+
+    // Load variables from data model
+    function loadVariables(variables) {
+        calculationData.variables = variables;
+        updateVariablesList();
+    }
+
+
+    function initUnitSelector(targetInputId, callback) {
+        // Initialize unit selector for a specific input field
+        const targetInput = document.getElementById(targetInputId);
+        if (!targetInput) return;
+
+        // Show the unit selector modal
+        function showUnitSelector() {
+            // Load the first category
+            loadUnitsForCategory('length');
+
+            // Show the modal
+            const modal = new bootstrap.Modal(document.getElementById('unit-selector-modal'));
+            modal.show();
+        }
+
+        // Load units for a category
+        function loadUnitsForCategory(category) {
+            const unitList = document.getElementById('unit-list');
+            unitList.innerHTML = '';
+
+            // Get units for the selected category
+            const units = getCommonUnits(category);
+
+            // Populate the unit list
+            units.forEach(unit => {
+                const unitItem = document.createElement('a');
+                unitItem.href = '#';
+                unitItem.className = 'list-group-item list-group-item-action';
+                unitItem.innerHTML = `
+                    <div class="d-flex w-100 justify-content-between">
+                        <h6 class="mb-1">${unit.name}</h6>
+                        <span class="unit-symbol">${unit.symbol}</span>
+                    </div>
+                `;
+
+                unitItem.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    selectUnit(unit.symbol);
+                });
+
+                unitList.appendChild(unitItem);
+            });
+        }
+
+        // Handle unit selection
+        function selectUnit(unitSymbol) {
+            // Close the modal
+            bootstrap.Modal.getInstance(document.getElementById('unit-selector-modal')).hide();
+
+            // Set the selected unit
+            if (callback && typeof callback === 'function') {
+                callback(unitSymbol);
+            } else {
+                targetInput.value = unitSymbol;
+            }
+        }
+
+        // Initialize event listeners
+        document.querySelectorAll('#unit-categories a').forEach(item => {
+            item.addEventListener('click', function(e) {
+                e.preventDefault();
+
+                // Update active state
+                document.querySelectorAll('#unit-categories a').forEach(i => i.classList.remove('active'));
+                this.classList.add('active');
+
+                // Load units for the selected category
+                const category = this.getAttribute('data-category');
+                loadUnitsForCategory(category);
+            });
+        });
+
+        // Search functionality
+        document.getElementById('unit-search').addEventListener('input', function() {
+            const searchValue = this.value.toLowerCase();
+            if (!searchValue) {
+                // If search is empty, show the current category
+                const activeCategory = document.querySelector('#unit-categories a.active').getAttribute('data-category');
+                loadUnitsForCategory(activeCategory);
+                return;
+            }
+
+            // Search across all categories
+            const unitList = document.getElementById('unit-list');
+            unitList.innerHTML = '';
+
+            let found = false;
+
+            // Check all categories
+            document.querySelectorAll('#unit-categories a').forEach(categoryItem => {
+                const category = categoryItem.getAttribute('data-category');
+                const units = getCommonUnits(category);
+
+                // Filter units by search value
+                const matchingUnits = units.filter(unit =>
+                    unit.name.toLowerCase().includes(searchValue) ||
+                    unit.symbol.toLowerCase().includes(searchValue)
+                );
+
+                // Add matching units to the list
+                matchingUnits.forEach(unit => {
+                    found = true;
+                    const unitItem = document.createElement('a');
+                    unitItem.href = '#';
+                    unitItem.className = 'list-group-item list-group-item-action';
+                    unitItem.innerHTML = `
+                        <div class="d-flex w-100 justify-content-between">
+                            <h6 class="mb-1">${unit.name}</h6>
+                            <span class="unit-symbol">${unit.symbol}</span>
+                        </div>
+                        <small class="text-muted">Category: ${categoryItem.textContent}</small>
+                    `;
+
+                    unitItem.addEventListener('click', function(e) {
+                        e.preventDefault();
+                        selectUnit(unit.symbol);
+                    });
+
+                    unitList.appendChild(unitItem);
+                });
+            });
+
+            // If no matches, show message
+            if (!found) {
+                unitList.innerHTML = '<div class="list-group-item">No matching units found</div>';
+            }
+        });
+
+        // Custom unit input
+        document.getElementById('use-custom-unit').addEventListener('click', function() {
+            const customUnit = document.getElementById('custom-unit-input').value.trim();
+            if (customUnit) {
+                selectUnit(customUnit);
+            }
+        });
+
+        // Add unit selection button next to the target input
+        const unitButton = document.createElement('button');
+        unitButton.type = 'button';
+        unitButton.className = 'btn btn-outline-secondary unit-selector-btn';
+        unitButton.innerHTML = '<i class="fas fa-ruler"></i> Unit';
+        unitButton.addEventListener('click', showUnitSelector);
+
+        // Insert the button after the target input
+        targetInput.insertAdjacentElement('afterend', unitButton);
+
+        // Return the initialization object
+        return {
+            showSelector: showUnitSelector,
+            selectUnit: selectUnit
+        };
+    }
+</script>
+{% endblock %}

@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+
+{% block title %}Bad Request - Engineering Calculator{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8">
+        <div class="card text-center">
+            <div class="card-body p-5">
+                <h1 class="display-1 text-muted">400</h1>
+                <h2 class="mb-4">Bad Request</h2>
+                <p class="lead">The server could not understand the request due to invalid syntax.</p>
+                <div class="mt-5">
+                    <a href="{{ url_for('dashboard.index') }}" class="btn btn-primary">
+                        <i class="fas fa-home"></i> Return to Dashboard
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

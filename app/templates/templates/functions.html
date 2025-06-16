@@ -1,0 +1,188 @@
+{% extends "base.html" %}
+
+{% block title %}Custom Functions - Engineering Calculator{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-md-8">
+        <h1>Custom Functions</h1>
+        <p class="lead">Browse and create reusable calculation functions.</p>
+    </div>
+    <div class="col-md-4 text-end">
+        <a href="{{ url_for('templates.new_function') }}" class="btn btn-primary">
+            <i class="fas fa-plus-circle"></i> Create Function
+        </a>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-3">
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Categories</h5>
+            </div>
+            <div class="card-body p-0">
+                <div class="list-group list-group-flush" id="categories-list">
+                    <a href="#" class="list-group-item list-group-item-action active" data-category="all">All Categories</a>
+                    
+                    {% set categories = [] %}
+                    {% for function in published_functions %}
+                        {% if function.category not in categories %}
+                            {% set _ = categories.append(function.category) %}
+                        {% endif %}
+                    {% endfor %}
+                    
+                    {% for category in categories|sort %}
+                        <a href="#" class="list-group-item list-group-item-action" data-category="{{ category }}">{{ category }}</a>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+        
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">My Functions</h5>
+            </div>
+            <div class="card-body p-0">
+                <div class="list-group list-group-flush">
+                    {% if private_functions %}
+                        {% for function in private_functions %}
+                            <a href="{{ url_for('templates.view_function', id=function.id) }}" class="list-group-item list-group-item-action">
+                                {{ function.name }}
+                                <span class="badge bg-secondary float-end">Private</span>
+                            </a>
+                        {% endfor %}
+                    {% else %}
+                        <div class="list-group-item text-center text-muted">
+                            You haven't created any private functions yet.
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-9">
+        <div class="card">
+            <div class="card-header">
+                <div class="row align-items-center">
+                    <div class="col">
+                        <h5 class="card-title mb-0" id="current-category">All Categories</h5>
+                    </div>
+                    <div class="col-auto">
+                        <div class="input-group">
+                            <input type="text" class="form-control" id="function-search" placeholder="Search functions...">
+                            <button class="btn btn-outline-secondary" type="button" id="search-btn">
+                                <i class="fas fa-search"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="card-body">
+                {% if published_functions %}
+                    <div class="row" id="functions-container">
+                        <div class="col-12">
+                            <table class="table table-hover">
+                                <thead>
+                                    <tr>
+                                        <th>Function Name</th>
+                                        <th>Category</th>
+                                        <th>Description</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for function in published_functions %}
+                                    <tr class="function-item" data-category="{{ function.category }}">
+                                        <td><strong>{{ function.name }}</strong></td>
+                                        <td>{{ function.category }}</td>
+                                        <td>{{ function.description|truncate(100) }}</td>
+                                        <td>
+                                            <div class="btn-group btn-group-sm">
+                                                <a href="{{ url_for('templates.view_function', id=function.id) }}" class="btn btn-outline-primary" title="View">
+                                                    <i class="fas fa-eye"></i>
+                                                </a>
+                                                {% if current_user.id == function.user_id %}
+                                                <a href="#" class="btn btn-outline-secondary" title="Edit">
+                                                    <i class="fas fa-edit"></i>
+                                                </a>
+                                                {% endif %}
+                                            </div>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                {% else %}
+                    <div class="text-center p-5">
+                        <p class="text-muted">No published functions available.</p>
+                        <a href="{{ url_for('templates.new_function') }}" class="btn btn-primary">
+                            Create the First Function
+                        </a>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    $(document).ready(function() {
+        // Category filtering
+        $('#categories-list a').click(function(e) {
+            e.preventDefault();
+
+            // Update active category
+            $('#categories-list a').removeClass('active');
+            $(this).addClass('active');
+
+            const category = $(this).data('category');
+            $('#current-category').text(category === 'all' ? 'All Categories' : category);
+
+            // Filter functions
+            if (category === 'all') {
+                $('.function-item').show();
+            } else {
+                $('.function-item').hide();
+                $(`.function-item[data-category="${category}"]`).show();
+            }
+        });
+
+        // Search functionality
+        $('#search-btn').click(function() {
+            const searchText = $('#function-search').val().toLowerCase();
+
+            if (searchText === '') {
+                $('.function-item').show();
+                return;
+            }
+
+            $('.function-item').each(function() {
+                const functionName = $(this).find('td:first-child').text().toLowerCase();
+                const functionDesc = $(this).find('td:nth-child(3)').text().toLowerCase();
+                const functionCategory = $(this).find('td:nth-child(2)').text().toLowerCase();
+
+                if (functionName.includes(searchText) ||
+                    functionDesc.includes(searchText) ||
+                    functionCategory.includes(searchText)) {
+                    $(this).show();
+                } else {
+                    $(this).hide();
+                }
+            });
+        });
+
+        // Search on Enter key
+        $('#function-search').keypress(function(e) {
+            if (e.which === 13) {
+                $('#search-btn').click();
+            }
+        });
+    });
+</script>
+{% endblock %}

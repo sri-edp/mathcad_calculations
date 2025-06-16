@@ -1,0 +1,167 @@
+{% extends "base.html" %}
+
+{% block title %}Templates Library - Engineering Calculator{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-md-8">
+        <h1>Templates Library</h1>
+        <p class="lead">Browse and use calculation templates.</p>
+    </div>
+    <div class="col-md-4 text-end">
+        <a href="{{ url_for('templates.new_template') }}" class="btn btn-primary">
+            <i class="fas fa-plus-circle"></i> Create Template
+        </a>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-3">
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Categories</h5>
+            </div>
+            <div class="card-body p-0">
+                <div class="list-group list-group-flush" id="categories-list">
+                    <a href="#" class="list-group-item list-group-item-action active" data-category="all">All Categories</a>
+                    
+                    {% set categories = [] %}
+                    {% for template in published_templates %}
+                        {% if template.category not in categories %}
+                            {% set _ = categories.append(template.category) %}
+                        {% endif %}
+                    {% endfor %}
+                    
+                    {% for category in categories|sort %}
+                        <a href="#" class="list-group-item list-group-item-action" data-category="{{ category }}">{{ category }}</a>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+        
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">My Templates</h5>
+            </div>
+            <div class="card-body p-0">
+                <div class="list-group list-group-flush">
+                    {% if private_templates %}
+                        {% for template in private_templates %}
+                            <a href="{{ url_for('templates.view_template', id=template.id) }}" class="list-group-item list-group-item-action">
+                                {{ template.name }}
+                                <span class="badge bg-secondary float-end">Private</span>
+                            </a>
+                        {% endfor %}
+                    {% else %}
+                        <div class="list-group-item text-center text-muted">
+                            You haven't created any private templates yet.
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-9">
+        <div class="card">
+            <div class="card-header">
+                <div class="row align-items-center">
+                    <div class="col">
+                        <h5 class="card-title mb-0" id="current-category">All Categories</h5>
+                    </div>
+                    <div class="col-auto">
+                        <div class="input-group">
+                            <input type="text" class="form-control" id="template-search" placeholder="Search templates...">
+                            <button class="btn btn-outline-secondary" type="button" id="search-btn">
+                                <i class="fas fa-search"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="card-body">
+                {% if published_templates %}
+                    <div class="row row-cols-1 row-cols-md-3 g-4" id="templates-container">
+                        {% for template in published_templates %}
+                            <div class="col template-item" data-category="{{ template.category }}">
+                                <div class="card h-100">
+                                    <div class="card-body">
+                                        <h5 class="card-title">{{ template.name }}</h5>
+                                        <h6 class="card-subtitle mb-2 text-muted">{{ template.category }}</h6>
+                                        <p class="card-text">{{ template.description|truncate(100) }}</p>
+                                    </div>
+                                    <div class="card-footer bg-transparent">
+                                        <a href="{{ url_for('templates.use_template', id=template.id) }}" class="btn btn-sm btn-primary">Use Template</a>
+                                        <a href="{{ url_for('templates.view_template', id=template.id) }}" class="btn btn-sm btn-outline-secondary">View</a>
+                                    </div>
+                                </div>
+                            </div>
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <div class="text-center p-5">
+                        <p class="text-muted">No published templates available.</p>
+                        <a href="{{ url_for('templates.new_template') }}" class="btn btn-primary">
+                            Create the First Template
+                        </a>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    $(document).ready(function() {
+        // Category filtering
+        $('#categories-list a').click(function(e) {
+            e.preventDefault();
+            
+            // Update active category
+            $('#categories-list a').removeClass('active');
+            $(this).addClass('active');
+            
+            const category = $(this).data('category');
+            $('#current-category').text(category === 'all' ? 'All Categories' : category);
+            
+            // Filter templates
+            if (category === 'all') {
+                $('.template-item').show();
+            } else {
+                $('.template-item').hide();
+                $(`.template-item[data-category="${category}"]`).show();
+            }
+        });
+        
+        // Search functionality
+        $('#search-btn').click(function() {
+            const searchText = $('#template-search').val().toLowerCase();
+            
+            if (searchText === '') {
+                $('.template-item').show();
+                return;
+            }
+            
+            $('.template-item').each(function() {
+                const templateName = $(this).find('.card-title').text().toLowerCase();
+                const templateDesc = $(this).find('.card-text').text().toLowerCase();
+                
+                if (templateName.includes(searchText) || templateDesc.includes(searchText)) {
+                    $(this).show();
+                } else {
+                    $(this).hide();
+                }
+            });
+        });
+        
+        // Search on Enter key
+        $('#template-search').keypress(function(e) {
+            if (e.which === 13) {
+                $('#search-btn').click();
+            }
+        });
+    });
+</script>
+{% endblock %}

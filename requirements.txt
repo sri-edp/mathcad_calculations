@@ -1,0 +1,20 @@
+flask
+flask-login
+flask-sqlalchemy
+flask-wtf
+werkzeug
+sympy    # For symbolic math
+numpy   # For numerical computation
+pandas    # For data handling
+matplotlib # For plotting
+scipy    # For scientific computing
+mpmath  # For arbitrary precision arithmetic
+pint   # For unit handling
+reportlab # For PDF generation
+python-docx # For Word document generation
+pillow   # For image processing
+flask-migrate # For database migrations
+flask-mail # For email functionality
+flask-cors # For cross-origin resource sharing
+gunicorn  # For production deployment
+python-dotenv # For environment variables

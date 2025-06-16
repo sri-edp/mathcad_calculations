@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+
+{% block title %}Access Forbidden - Engineering Calculator{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8">
+        <div class="card text-center">
+            <div class="card-body p-5">
+                <h1 class="display-1 text-warning">403</h1>
+                <h2 class="mb-4">Access Forbidden</h2>
+                <p class="lead">You don't have permission to access this resource.</p>
+                <div class="mt-5">
+                    <a href="{{ url_for('dashboard.index') }}" class="btn btn-primary">
+                        <i class="fas fa-home"></i> Return to Dashboard
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
