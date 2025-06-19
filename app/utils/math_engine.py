@@ -1,394 +1,581 @@
 import numpy as np
 import sympy as sp
 import matplotlib.pyplot as plt
+import matplotlib
+
+matplotlib.use('Agg')  # Use non-interactive backend
 import io
 import base64
-from scipy import optimize
+from scipy import optimize, interpolate
 import math
 import re
-from app.utils.unit_converter import ureg, convert_unit, parse_quantity
+from typing import Dict, Any, List, Union, Tuple
+import json
+from decimal import Decimal, getcontext
+import warnings
+
+warnings.filterwarnings('ignore')
+
+# Set high precision for symbolic calculations
+getcontext().prec = 50
 
 
-def evaluate_expression(expression, variables=None):
+class EnhancedMathEngine:
     """
-    Evaluate a mathematical expression with the given variables
-
-    Args:
-        expression (str): The mathematical expression to evaluate
-        variables (dict): Dictionary of variable names and their values
-
-    Returns:
-        dict: Result value, unit, and formatted display
+    Enhanced mathematical computation engine supporting both symbolic and numeric operations
+    Addresses REQ-001, REQ-002, REQ-005, REQ-006, REQ-007, REQ-030
     """
-    if variables is None:
-        variables = {}
 
-    # Process variables to extract unit information
-    processed_vars = {}
-    units = {}
-
-    for name, var_data in variables.items():
-        if isinstance(var_data, dict) and 'value' in var_data:
-            # Extract value and unit separately
-            value = var_data['value']
-            unit = var_data.get('unit', '')
-
-            # Store unit information
-            if unit:
-                units[name] = unit
-
-            # Store processed value
-            processed_vars[name] = float(value) if is_numeric(value) else value
-        else:
-            # Direct value assignment
-            processed_vars[name] = var_data
-
-    # Try to evaluate with unit handling first
-    try:
-        return evaluate_with_unit_tracking(expression, processed_vars, units)
-    except Exception as ex:
-        # Fall back to sympy evaluation if unit handling fails
-        expr = sp.sympify(expression)
-        symbols = expr.free_symbols
-
-        # If all symbols have values, evaluate numerically
-        if all(symbol.name in processed_vars for symbol in symbols):
-            # Substitute values and evaluate
-            subs_dict = {sp.Symbol(name): value for name, value in processed_vars.items()}
-            result = float(expr.subs(subs_dict))
-            return {
-                'value': result,
-                'unit': None,
-                'formatted': str(result)
-            }
-        else:
-            # Return symbolic expression
-            return {
-                'value': expr,
-                'unit': None,
-                'formatted': str(expr)
-            }
-
-
-def evaluate_with_unit_tracking(expression, variables, units_dict):
-    """
-    Evaluate an expression with unit tracking
-
-    Args:
-        expression (str): Math expression to evaluate
-        variables (dict): Variables with their numeric values
-        units_dict (dict): Units for each variable
-
-    Returns:
-        dict: Result with value, unit, and formatted display
-    """
-    # Create local variables dictionary with unit objects
-    local_vars = {'ureg': ureg}
-
-    # Add variables with units to local vars
-    for name, value in variables.items():
-        if name in units_dict and units_dict[name]:
-            # Add with unit
-            unit_str = units_dict[name]
-            local_vars[name] = value * ureg(unit_str)
-        else:
-            # Add without unit
-            local_vars[name] = value
-
-    # Prepare expression for evaluation with units
-    unit_expr = expression
-
-    # Replace variable names that have units with their unit-aware notation
-    for name in variables:
-        if name in units_dict and units_dict[name]:
-            # Only replace whole words (not parts of other variables)
-            pattern = r'\b{}\b'.format(name)
-            unit_expr = re.sub(pattern, f'({name})', unit_expr)
-
-    # Evaluate the expression
-    result = eval(unit_expr, {"__builtins__": {}}, local_vars)
-
-    # Process the result
-    if hasattr(result, 'magnitude') and hasattr(result, 'units'):
-        # Result has units (it's a pint Quantity)
-        return {
-            'value': float(result.magnitude),
-            'unit': str(result.units),
-            'formatted': str(result)
-        }
-    else:
-        # Plain numeric result
-        return {
-            'value': float(result) if is_numeric(result) else result,
-            'unit': None,
-            'formatted': str(result)
+    def __init__(self):
+        self.variables = {}
+        self.user_functions = {}
+        self.precision_settings = {
+            'decimal_places': 6,
+            'significant_digits': 8,
+            'tolerance': 1e-10,
+            'output_format': 'auto'  # 'auto', 'decimal', 'scientific', 'engineering'
         }
 
+        # Initialize sympy with custom settings
+        sp.init_printing(use_unicode=True)
 
-def is_numeric(value):
-    """Check if a value is numeric"""
-    try:
-        float(value)
-        return True
-    except (TypeError, ValueError):
-        return False
+        # Define common mathematical constants
+        self.constants = {
+            'pi': sp.pi,
+            'e': sp.E,
+            'i': sp.I,
+            'oo': sp.oo,  # infinity
+            'g': 9.80665,  # standard gravity
+            'c': 299792458,  # speed of light
+            'h': 6.62607015e-34,  # Planck constant
+            'k_B': 1.380649e-23,  # Boltzmann constant
+            'N_A': 6.02214076e23,  # Avogadro number
+            'R': 8.314462618,  # Gas constant
+        }
 
+        # Initialize engineering function libraries
+        self._init_engineering_functions()
 
-def solve_equation(equation, solving_for, variables=None):
-    """
-    Solve an equation for the specified variable
+    def _init_engineering_functions(self):
+        """Initialize built-in engineering functions (REQ-019, REQ-020)"""
 
-    Args:
-        equation (str): The equation to solve (e.g., "x + y = 10")
-        solving_for (str): The variable to solve for
-        variables (dict): Dictionary of variable names and their values
+        # Mechanical Engineering Functions
+        self.engineering_functions = {
+            'stress_normal': lambda F, A: F / A,
+            'stress_shear': lambda V, A: V / A,
+            'strain': lambda delta_L, L: delta_L / L,
+            'youngs_modulus': lambda stress, strain: stress / strain,
+            'moment_of_inertia_rectangle': lambda b, h: (b * h ** 3) / 12,
+            'moment_of_inertia_circle': lambda r: (sp.pi * r ** 4) / 4,
+            'beam_deflection_cantilever': lambda P, L, E, I: (P * L ** 3) / (3 * E * I),
+            'beam_deflection_simply_supported': lambda w, L, E, I: (5 * w * L ** 4) / (384 * E * I),
 
-    Returns:
-        list: Solutions to the equation with units if applicable
-    """
-    if variables is None:
-        variables = {}
+            # Electrical Engineering Functions
+            'ohms_law_voltage': lambda I, R: I * R,
+            'ohms_law_current': lambda V, R: V / R,
+            'ohms_law_resistance': lambda V, I: V / I,
+            'power_electrical': lambda V, I: V * I,
+            'power_resistive': lambda I, R: I ** 2 * R,
+            'impedance_series': lambda *Z: sum(Z),
+            'impedance_parallel': lambda *Z: 1 / sum(1 / z for z in Z),
+            'capacitive_reactance': lambda f, C: 1 / (2 * sp.pi * f * C),
+            'inductive_reactance': lambda f, L: 2 * sp.pi * f * L,
 
-    # Process variables and extract unit information
-    processed_vars = {}
-    units = {}
+            # Fluid Mechanics Functions
+            'reynolds_number': lambda rho, v, L, mu: (rho * v * L) / mu,
+            'friction_factor_laminar': lambda Re: 64 / Re,
+            'bernoulli_pressure': lambda rho, v1, z1, v2, z2, g=9.81: rho * g * (z1 - z2) + 0.5 * rho * (
+                        v1 ** 2 - v2 ** 2),
+            'flow_rate_volumetric': lambda A, v: A * v,
+            'flow_rate_mass': lambda rho, Q: rho * Q,
 
-    for name, var_data in variables.items():
-        if isinstance(var_data, dict) and 'value' in var_data:
-            # Extract value and unit separately
-            value = var_data['value']
-            unit = var_data.get('unit', '')
+            # Thermodynamics Functions
+            'ideal_gas_pressure': lambda n, R, T, V: (n * R * T) / V,
+            'heat_transfer_conduction': lambda k, A, dT, dx: k * A * dT / dx,
+            'heat_transfer_convection': lambda h, A, dT: h * A * dT,
+            'thermal_resistance_conduction': lambda dx, k, A: dx / (k * A),
+            'thermal_resistance_convection': lambda h, A: 1 / (h * A),
 
-            # Store unit information
-            if unit:
-                units[name] = unit
+            # Civil Engineering Functions
+            'concrete_compression_strength': lambda fc_28, t: fc_28 * (t / (4 + 0.85 * t)),
+            'steel_yield_strength': lambda fy, temp_factor=1.0: fy * temp_factor,
+            'safety_factor': lambda ultimate_strength, working_stress: ultimate_strength / working_stress,
 
-            # Store processed value
-            processed_vars[name] = float(value) if is_numeric(value) else value
-        else:
-            # Direct value assignment
-            processed_vars[name] = var_data
+            # Signal Processing Functions
+            'decibel': lambda P, P_ref: 20 * sp.log(P / P_ref, 10),
+            'rms': lambda values: sp.sqrt(sum(v ** 2 for v in values) / len(values)),
+        }
 
-    # Parse the left and right sides of the equation
-    if '=' in equation:
-        left_side, right_side = equation.split('=')
-        left_expr = sp.sympify(left_side.strip())
-        right_expr = sp.sympify(right_side.strip())
-        expr = left_expr - right_expr
-    else:
-        # If no equals sign, assume equation is set to zero
-        expr = sp.sympify(equation)
+    def set_precision(self, decimal_places: int = None, significant_digits: int = None,
+                      tolerance: float = None, output_format: str = None):
+        """Set precision settings for calculations (REQ-033)"""
+        if decimal_places is not None:
+            self.precision_settings['decimal_places'] = decimal_places
+        if significant_digits is not None:
+            self.precision_settings['significant_digits'] = significant_digits
+        if tolerance is not None:
+            self.precision_settings['tolerance'] = tolerance
+        if output_format is not None:
+            self.precision_settings['output_format'] = output_format
 
-    # Create symbol for the variable to solve for
-    symbol = sp.Symbol(solving_for)
+        # Update sympy precision
+        getcontext().prec = max(28, significant_digits * 2) if significant_digits else 50
 
-    # Substitute known variables
-    subs_dict = {sp.Symbol(name): value for name, value in processed_vars.items() if name != solving_for}
-    expr = expr.subs(subs_dict)
+    def format_number(self, value: Union[float, complex, sp.Basic],
+                      use_units: bool = False, unit: str = '') -> str:
+        """Format numbers according to precision settings (REQ-033)"""
+        if isinstance(value, (sp.Basic, sp.Expr)) and not value.is_number:
+            return str(value)
 
-    # Solve the equation
-    solutions = sp.solve(expr, symbol)
-
-    # Convert solutions to float when possible and add unit information
-    result = []
-
-    # Determine the unit for the result, if any
-    result_unit = infer_unit_for_variable(solving_for, equation, units)
-
-    for sol in solutions:
         try:
-            value = float(sol)
-            # Add unit information if applicable
-            if result_unit:
-                result.append({
-                    'value': value,
-                    'unit': result_unit,
-                    'formatted': f"{value} {result_unit}"
-                })
+            if isinstance(value, complex):
+                real_part = self._format_single_number(value.real)
+                imag_part = self._format_single_number(value.imag)
+                formatted = f"{real_part} + {imag_part}i" if value.imag >= 0 else f"{real_part} - {abs(imag_part)}i"
             else:
-                result.append({
-                    'value': value,
-                    'unit': None,
-                    'formatted': str(value)
-                })
+                formatted = self._format_single_number(float(value))
+
+            if use_units and unit:
+                formatted += f" {unit}"
+
+            return formatted
         except (TypeError, ValueError):
-            # For symbolic solutions
-            result.append({
-                'value': str(sol),
-                'unit': result_unit,
-                'formatted': f"{str(sol)} {result_unit}" if result_unit else str(sol)
+            return str(value)
+
+    def _format_single_number(self, value: float) -> str:
+        """Format a single number according to precision settings"""
+        if abs(value) < self.precision_settings['tolerance']:
+            return "0"
+
+        format_type = self.precision_settings['output_format']
+        decimal_places = self.precision_settings['decimal_places']
+        sig_digits = self.precision_settings['significant_digits']
+
+        if format_type == 'scientific':
+            return f"{value:.{sig_digits - 1}e}"
+        elif format_type == 'engineering':
+            exp = int(np.floor(np.log10(abs(value)) / 3)) * 3
+            mantissa = value / (10 ** exp)
+            return f"{mantissa:.{decimal_places}f}e{exp:+d}"
+        elif format_type == 'decimal':
+            return f"{value:.{decimal_places}f}"
+        else:  # auto format
+            if abs(value) >= 1e6 or abs(value) < 1e-3:
+                return f"{value:.{sig_digits - 1}e}"
+            else:
+                return f"{value:.{decimal_places}f}".rstrip('0').rstrip('.')
+
+    def declare_variable(self, name: str, value: Any, unit: str = '',
+                         description: str = '', scope: str = 'global') -> Dict[str, Any]:
+        """Declare a variable with units and scope (REQ-030)"""
+        if not re.match(r'^[a-zA-Z][a-zA-Z0-9_]*$', name):
+            raise ValueError(
+                "Variable name must start with a letter and contain only letters, numbers, and underscores")
+
+        # Parse and validate the value
+        parsed_value = self._parse_value(value)
+
+        variable_info = {
+            'value': parsed_value,
+            'unit': unit,
+            'description': description,
+            'scope': scope,
+            'type': self._get_value_type(parsed_value),
+            'created_at': sp.N(sp.now()),  # Use sympy's now() function
+            'symbolic': isinstance(parsed_value, sp.Basic)
+        }
+
+        self.variables[name] = variable_info
+        return variable_info
+
+    def _parse_value(self, value: Any) -> Any:
+        """Parse a value, supporting symbolic expressions"""
+        if isinstance(value, str):
+            try:
+                # Try to parse as symbolic expression first
+                return sp.sympify(value, locals=self.constants)
+            except:
+                try:
+                    # Fall back to numeric parsing
+                    return float(value)
+                except:
+                    raise ValueError(f"Cannot parse value: {value}")
+        elif isinstance(value, (int, float, complex)):
+            return value
+        elif isinstance(value, sp.Basic):
+            return value
+        else:
+            raise ValueError(f"Unsupported value type: {type(value)}")
+
+    def _get_value_type(self, value: Any) -> str:
+        """Get the type of a value"""
+        if isinstance(value, sp.Basic):
+            if value.is_real:
+                return 'symbolic_real'
+            elif value.is_complex:
+                return 'symbolic_complex'
+            else:
+                return 'symbolic_expression'
+        elif isinstance(value, complex):
+            return 'complex'
+        elif isinstance(value, float):
+            return 'real'
+        elif isinstance(value, int):
+            return 'integer'
+        else:
+            return 'unknown'
+
+    def evaluate_expression(self, expression: str, mode: str = 'auto',
+                            variables: Dict = None) -> Dict[str, Any]:
+        """
+        Evaluate mathematical expressions with both symbolic and numeric support
+        (REQ-001, REQ-002, REQ-004)
+        """
+        if variables is None:
+            variables = {}
+
+        # Combine with stored variables
+        all_variables = {**self.variables, **variables}
+
+        try:
+            # Parse the expression
+            expr = sp.sympify(expression, locals={
+                **self.constants,
+                **{name: var['value'] for name, var in all_variables.items()},
+                **self.engineering_functions
             })
 
-    return result
+            # Determine evaluation mode
+            if mode == 'auto':
+                # Use symbolic if expression contains undefined symbols or symbolic variables
+                mode = 'symbolic' if expr.free_symbols or any(
+                    isinstance(var['value'], sp.Basic) and not var['value'].is_number
+                    for var in all_variables.values()
+                ) else 'numeric'
+
+            if mode == 'symbolic':
+                result = expr
+                result_type = 'symbolic'
+            else:
+                # Numeric evaluation
+                result = complex(expr.evalf()) if expr.is_complex else float(expr.evalf())
+                result_type = 'numeric'
+
+            return {
+                'result': result,
+                'type': result_type,
+                'expression': str(expr),
+                'formatted': self.format_number(result),
+                'mode': mode,
+                'free_symbols': [str(s) for s in expr.free_symbols]
+            }
+
+        except Exception as e:
+            return {
+                'error': str(e),
+                'expression': expression,
+                'mode': mode
+            }
+
+    def solve_equation(self, equation: str, solve_for: str,
+                       method: str = 'symbolic') -> Dict[str, Any]:
+        """
+        Solve algebraic equations symbolically and numerically (REQ-006)
+        """
+        try:
+            # Parse equation
+            if '=' in equation:
+                left, right = equation.split('=', 1)
+                eq = sp.Eq(sp.sympify(left.strip()), sp.sympify(right.strip()))
+            else:
+                eq = sp.Eq(sp.sympify(equation), 0)
+
+            symbol = sp.Symbol(solve_for)
+
+            if method == 'symbolic':
+                solutions = sp.solve(eq, symbol)
+            else:
+                # Numeric solving using initial guess
+                solutions = sp.nsolve(eq.lhs - eq.rhs, symbol, 1.0)
+                solutions = [solutions] if not isinstance(solutions, list) else solutions
+
+            formatted_solutions = []
+            for sol in solutions:
+                formatted_solutions.append({
+                    'value': sol,
+                    'formatted': self.format_number(sol),
+                    'numeric': float(sol.evalf()) if hasattr(sol, 'evalf') else float(sol)
+                })
+
+            return {
+                'solutions': formatted_solutions,
+                'equation': str(eq),
+                'variable': solve_for,
+                'method': method,
+                'count': len(solutions)
+            }
+
+        except Exception as e:
+            return {
+                'error': str(e),
+                'equation': equation,
+                'variable': solve_for,
+                'method': method
+            }
+
+    def differentiate(self, expression: str, variable: str, order: int = 1) -> Dict[str, Any]:
+        """Symbolic differentiation (REQ-006)"""
+        try:
+            expr = sp.sympify(expression, locals=self.constants)
+            var = sp.Symbol(variable)
+
+            derivative = sp.diff(expr, var, order)
+
+            return {
+                'derivative': derivative,
+                'formatted': str(derivative),
+                'order': order,
+                'variable': variable,
+                'original': str(expr)
+            }
+
+        except Exception as e:
+            return {
+                'error': str(e),
+                'expression': expression,
+                'variable': variable,
+                'order': order
+            }
+
+    def integrate(self, expression: str, variable: str,
+                  lower_bound: Any = None, upper_bound: Any = None) -> Dict[str, Any]:
+        """Symbolic and numeric integration (REQ-006)"""
+        try:
+            expr = sp.sympify(expression, locals=self.constants)
+            var = sp.Symbol(variable)
+
+            if lower_bound is not None and upper_bound is not None:
+                # Definite integral
+                lower = sp.sympify(lower_bound)
+                upper = sp.sympify(upper_bound)
+                result = sp.integrate(expr, (var, lower, upper))
+                integral_type = 'definite'
+            else:
+                # Indefinite integral
+                result = sp.integrate(expr, var)
+                integral_type = 'indefinite'
+
+            return {
+                'integral': result,
+                'formatted': str(result),
+                'type': integral_type,
+                'variable': variable,
+                'bounds': [lower_bound, upper_bound] if integral_type == 'definite' else None,
+                'original': str(expr),
+                'numeric': float(result.evalf()) if result.is_number else None
+            }
+
+        except Exception as e:
+            return {
+                'error': str(e),
+                'expression': expression,
+                'variable': variable,
+                'bounds': [lower_bound, upper_bound]
+            }
+
+    def matrix_operations(self, operation: str, *matrices) -> Dict[str, Any]:
+        """Matrix and vector operations (REQ-005)"""
+        try:
+            # Convert input matrices to sympy matrices
+            sp_matrices = []
+            for matrix in matrices:
+                if isinstance(matrix, (list, tuple)):
+                    sp_matrices.append(sp.Matrix(matrix))
+                elif isinstance(matrix, np.ndarray):
+                    sp_matrices.append(sp.Matrix(matrix.tolist()))
+                else:
+                    sp_matrices.append(matrix)
+
+            if operation == 'multiply':
+                result = sp_matrices[0]
+                for m in sp_matrices[1:]:
+                    result = result * m
+            elif operation == 'add':
+                result = sp_matrices[0]
+                for m in sp_matrices[1:]:
+                    result = result + m
+            elif operation == 'subtract':
+                result = sp_matrices[0] - sp_matrices[1]
+            elif operation == 'inverse':
+                result = sp_matrices[0].inv()
+            elif operation == 'transpose':
+                result = sp_matrices[0].T
+            elif operation == 'determinant':
+                result = sp_matrices[0].det()
+            elif operation == 'eigenvalues':
+                result = sp_matrices[0].eigenvals()
+            elif operation == 'eigenvectors':
+                result = sp_matrices[0].eigenvects()
+            elif operation == 'rank':
+                result = sp_matrices[0].rank()
+            elif operation == 'trace':
+                result = sp_matrices[0].trace()
+            else:
+                raise ValueError(f"Unknown matrix operation: {operation}")
+
+            return {
+                'result': result,
+                'formatted': str(result),
+                'operation': operation,
+                'input_matrices': len(sp_matrices)
+            }
+
+        except Exception as e:
+            return {
+                'error': str(e),
+                'operation': operation,
+                'matrices_count': len(matrices)
+            }
+
+    def define_function(self, name: str, parameters: List[str],
+                        expression: str, description: str = '') -> Dict[str, Any]:
+        """Define custom user functions (REQ-007, REQ-025)"""
+        try:
+            # Validate function name
+            if not re.match(r'^[a-zA-Z][a-zA-Z0-9_]*$', name):
+                raise ValueError("Function name must start with a letter")
+
+            # Create parameter symbols
+            param_symbols = [sp.Symbol(p) for p in parameters]
+
+            # Parse expression
+            expr = sp.sympify(expression, locals=dict(zip(parameters, param_symbols)))
+
+            # Create lambda function
+            func = sp.lambdify(param_symbols, expr, 'numpy')
+
+            self.user_functions[name] = {
+                'parameters': parameters,
+                'expression': expr,
+                'description': description,
+                'lambda_func': func,
+                'created_at': sp.N(sp.now())
+            }
+
+            return {
+                'name': name,
+                'parameters': parameters,
+                'expression': str(expr),
+                'description': description,
+                'status': 'created'
+            }
+
+        except Exception as e:
+            return {
+                'error': str(e),
+                'name': name,
+                'parameters': parameters,
+                'expression': expression
+            }
+
+    def complex_number_operations(self, operation: str, *numbers) -> Dict[str, Any]:
+        """Complex number operations (REQ-004)"""
+        try:
+            # Convert to sympy complex numbers
+            complex_nums = [sp.sympify(str(num)) for num in numbers]
+
+            if operation == 'add':
+                result = sum(complex_nums)
+            elif operation == 'multiply':
+                result = complex_nums[0]
+                for num in complex_nums[1:]:
+                    result *= num
+            elif operation == 'conjugate':
+                result = sp.conjugate(complex_nums[0])
+            elif operation == 'magnitude':
+                result = sp.Abs(complex_nums[0])
+            elif operation == 'phase':
+                result = sp.arg(complex_nums[0])
+            elif operation == 'real':
+                result = sp.re(complex_nums[0])
+            elif operation == 'imaginary':
+                result = sp.im(complex_nums[0])
+            elif operation == 'polar':
+                magnitude = sp.Abs(complex_nums[0])
+                phase = sp.arg(complex_nums[0])
+                result = (magnitude, phase)
+            else:
+                raise ValueError(f"Unknown complex operation: {operation}")
+
+            return {
+                'result': result,
+                'formatted': str(result),
+                'operation': operation,
+                'input_count': len(complex_nums)
+            }
+
+        except Exception as e:
+            return {
+                'error': str(e),
+                'operation': operation,
+                'numbers': numbers
+            }
+
+    def curve_fitting(self, x_data: List[float], y_data: List[float],
+                      degree: int = 1, method: str = 'polynomial') -> Dict[str, Any]:
+        """Curve fitting and regression analysis (REQ-021)"""
+        try:
+            x_array = np.array(x_data)
+            y_array = np.array(y_data)
+
+            if method == 'polynomial':
+                coefficients = np.polyfit(x_array, y_array, degree)
+                polynomial = np.poly1d(coefficients)
+
+                # Calculate R-squared
+                y_pred = polynomial(x_array)
+                ss_res = np.sum((y_array - y_pred) ** 2)
+                ss_tot = np.sum((y_array - np.mean(y_array)) ** 2)
+                r_squared = 1 - (ss_res / ss_tot)
+
+                # Create sympy expression
+                x_sym = sp.Symbol('x')
+                expr = sum(coef * x_sym ** i for i, coef in enumerate(reversed(coefficients)))
+
+                return {
+                    'coefficients': coefficients.tolist(),
+                    'expression': str(expr),
+                    'r_squared': r_squared,
+                    'method': method,
+                    'degree': degree,
+                    'polynomial': polynomial
+                }
+
+            elif method == 'exponential':
+                # Fit y = a * exp(b * x)
+                log_y = np.log(y_array)
+                b, log_a = np.polyfit(x_array, log_y, 1)
+                a = np.exp(log_a)
+
+                x_sym = sp.Symbol('x')
+                expr = a * sp.exp(b * x_sym)
+
+                return {
+                    'parameters': {'a': a, 'b': b},
+                    'expression': str(expr),
+                    'method': method
+                }
+
+            else:
+                raise ValueError(f"Unknown fitting method: {method}")
+
+        except Exception as e:
+            return {
+                'error': str(e),
+                'method': method,
+                'data_points': len(x_data)
+            }
 
 
-def infer_unit_for_variable(variable, equation, known_units):
-    """
-    Attempt to infer the unit for a variable based on the equation and known units
-
-    This is a simplified implementation that tries to maintain unit consistency
-    For a complete solution, would need to implement dimensional analysis
-
-    Args:
-        variable (str): Variable to find unit for
-        equation (str): The equation being solved
-        known_units (dict): Units for known variables
-
-    Returns:
-        str: Inferred unit or None if cannot be determined
-    """
-    # This is a placeholder for a more sophisticated unit inference system
-    # A proper implementation would analyze the equation and perform dimensional analysis
-
-    # For now, we'll return None, but this would be where unit inference logic goes
-    return None
-
-
-def generate_plot(plot_type, x_data, y_data, title='Plot', x_label='X', y_label='Y'):
-    """
-    Generate a plot and return as base64 encoded image
-
-    Args:
-        plot_type (str): Type of plot ('line', 'scatter', 'bar')
-        x_data (list): X-axis data
-        y_data (list): Y-axis data
-        title (str): Plot title
-        x_label (str): X-axis label
-        y_label (str): Y-axis label
-
-    Returns:
-        str: Base64 encoded image data
-    """
-    plt.figure(figsize=(10, 6))
-
-    if plot_type == 'line':
-        plt.plot(x_data, y_data)
-    elif plot_type == 'scatter':
-        plt.scatter(x_data, y_data)
-    elif plot_type == 'bar':
-        plt.bar(x_data, y_data)
-    else:
-        plt.plot(x_data, y_data)  # Default to line plot
-
-    plt.title(title)
-    plt.xlabel(x_label)
-    plt.ylabel(y_label)
-    plt.grid(True)
-
-    # Save plot to a bytes buffer
-    buffer = io.BytesIO()
-    plt.savefig(buffer, format='png', dpi=100)
-    buffer.seek(0)
-
-    # Encode the image to base64
-    image_data = base64.b64encode(buffer.getvalue()).decode('utf-8')
-    plt.close()
-
-    return f"data:image/png;base64,{image_data}"
-
-
-def differentiate(expression, variable, order=1):
-    """
-    Differentiate an expression with respect to a variable
-
-    Args:
-        expression (str): The expression to differentiate
-        variable (str): The variable to differentiate with respect to
-        order (int): The order of differentiation
-
-    Returns:
-        dict: Differentiated expression with value, unit and formatted display
-    """
-    expr = sp.sympify(expression)
-    var = sp.Symbol(variable)
-
-    result = sp.diff(expr, var, order)
-
-    # Unit handling for differentiation:
-    # d/dx of y will have units of [y]/[x]
-    return {
-        'value': result,
-        'unit': None,  # Would need unit handling based on dimensional analysis
-        'formatted': str(result)
-    }
-
-
-def integrate(expression, variable, lower_bound=None, upper_bound=None):
-    """
-    Integrate an expression with respect to a variable
-
-    Args:
-        expression (str): The expression to integrate
-        variable (str): The variable to integrate with respect to
-        lower_bound: Lower bound for definite integral (optional)
-        upper_bound: Upper bound for definite integral (optional)
-
-    Returns:
-        dict: Integrated expression with value, unit and formatted display
-    """
-    expr = sp.sympify(expression)
-    var = sp.Symbol(variable)
-
-    if lower_bound is not None and upper_bound is not None:
-        # Definite integral
-        lower = sp.sympify(lower_bound)
-        upper = sp.sympify(upper_bound)
-        result = sp.integrate(expr, (var, lower, upper))
-    else:
-        # Indefinite integral
-        result = sp.integrate(expr, var)
-
-    # Unit handling for integration:
-    # ∫ y dx will have units of [y]*[x]
-    return {
-        'value': result,
-        'unit': None,  # Would need unit handling based on dimensional analysis
-        'formatted': str(result)
-    }
-
-
-def optimize_function(expression, variable, method='minimize', bounds=None):
-    """
-    Find the minimum or maximum of a function
-
-    Args:
-        expression (str): The expression to optimize
-        variable (str): The variable to optimize for
-        method (str): 'minimize' or 'maximize'
-        bounds (tuple): (lower, upper) bounds for the variable
-
-    Returns:
-        dict: The optimum point and value with units if applicable
-    """
-    expr = sp.sympify(expression)
-    var = sp.Symbol(variable)
-
-    # Convert sympy expression to numpy function
-    f = sp.lambdify(var, expr, "numpy")
-
-    if method == 'maximize':
-        # Negate the function for maximization
-        def obj_func(x):
-            return -1 * f(x)
-    else:
-        obj_func = f
-
-    if bounds:
-        result = optimize.minimize_scalar(obj_func, bounds=bounds, method='bounded')
-    else:
-        result = optimize.minimize_scalar(obj_func)
-
-    x_opt = result.x
-
-    if method == 'maximize':
-        f_opt = -1 * result.fun
-    else:
-        f_opt = result.fun
-
-    return {
-        'x': float(x_opt),
-        'value': float(f_opt),
-        'unit': None,  # Would need unit information
-        'success': result.success,
-        'formatted': f"x = {x_opt}, value = {f_opt}"
-    }
+# Global instance for use in Flask app
+math_engine = EnhancedMathEngine()

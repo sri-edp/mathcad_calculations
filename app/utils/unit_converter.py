@@ -1,210 +1,521 @@
 import pint
 import re
+import json
+from typing import Dict, List, Union, Any, Tuple, Optional
+from decimal import Decimal
+import sympy as sp
 
-# Create a unit registry
-ureg = pint.UnitRegistry()
 
-
-def convert_unit(value, from_unit, to_unit):
+class EnhancedUnitConverter:
     """
-    Convert a value from one unit to another
-
-    Args:
-        value (float): The value to convert
-        from_unit (str): The source unit
-        to_unit (str): The target unit
-
-    Returns:
-        float: The converted value
+    Enhanced unit converter supporting automatic unit checking and conversion
+    Addresses REQ-003, REQ-032
     """
-    try:
-        # Create quantity with original unit
-        quantity = value * ureg(from_unit)
 
-        # Convert to target unit
-        result = quantity.to(to_unit).magnitude
-        return result
-    except pint.errors.DimensionalityError:
-        raise ValueError(f"Cannot convert from {from_unit} to {to_unit}: incompatible dimensions")
-    except Exception as e:
-        raise ValueError(f"Unit conversion error: {str(e)}")
+    def __init__(self):
+        # Create unit registry with extended definitions
+        self.ureg = pint.UnitRegistry()
 
+        # Add custom engineering units
+        self._add_custom_units()
 
-def parse_quantity(quantity_str):
-    """
-    Parse a string containing a number and unit
+        # Default unit preferences by domain
+        self.default_units = {
+            'length': 'm',
+            'mass': 'kg',
+            'time': 's',
+            'temperature': 'K',
+            'current': 'A',
+            'luminous_intensity': 'cd',
+            'amount': 'mol',
+            'force': 'N',
+            'pressure': 'Pa',
+            'energy': 'J',
+            'power': 'W',
+            'frequency': 'Hz',
+            'voltage': 'V',
+            'resistance': 'ohm',
+            'capacitance': 'F',
+            'inductance': 'H',
+            'angle': 'rad',
+            'area': 'm^2',
+            'volume': 'm^3',
+            'velocity': 'm/s',
+            'acceleration': 'm/s^2',
+            'density': 'kg/m^3',
+            'viscosity': 'Pa*s',
+            'thermal_conductivity': 'W/(m*K)',
+            'heat_capacity': 'J/(kg*K)',
+            'stress': 'Pa',
+            'strain': 'dimensionless'
+        }
 
-    Args:
-        quantity_str (str): String in the format "value unit" (e.g., "5.2 kg")
+        # User preferences for units
+        self.user_preferences = self.default_units.copy()
 
-    Returns:
-        tuple: (value, unit) pair
-    """
-    # Match a number followed by optional whitespace and any unit
-    match = re.match(r'^([-+]?\d*\.?\d+([eE][-+]?\d+)?)\s*(.*)$', quantity_str.strip())
+        # Unit conversion cache for performance
+        self._conversion_cache = {}
 
-    if match:
-        value_str = match.group(1)
-        unit_str = match.group(3).strip()
-
-        try:
-            value = float(value_str)
-            return value, unit_str
-        except ValueError:
-            raise ValueError(f"Invalid number format: {value_str}")
-    else:
-        raise ValueError(f"Unable to parse quantity: {quantity_str}")
-
-
-def evaluate_with_units(expression):
-    """
-    Evaluate an expression with units
-
-    Args:
-        expression (str): Mathematical expression with units
-
-    Returns:
-        pint.Quantity: Result with appropriate unit
-    """
-    # Use eval with the unit registry
-    # This is a simplified approach and may not handle all cases correctly
-    # For production, a more robust parser would be needed
-
-    try:
-        # Replace unit names with ureg.unit to make them accessible in eval
-        pattern = r'([0-9.]+)\s*([a-zA-Z°/^*]+)'
-
-        def replace_units(match):
-            return f"{match.group(1)} * ureg('{match.group(2)}')"
-
-        modified_expr = re.sub(pattern, replace_units, expression)
-
-        # Add necessary imports to the evaluation environment
-        local_vars = {'ureg': ureg, 'np': __import__('numpy')}
-
-        # Evaluate the expression
-        result = eval(modified_expr, {"__builtins__": {}}, local_vars)
-        return result
-    except Exception as e:
-        raise ValueError(f"Error evaluating expression with units: {str(e)}")
-
-    def get_compatible_units(unit_str):
-        """
-        Get a list of compatible units for the given unit
-
-        Args:
-            unit_str (str): The unit to find compatible units for
-
-        Returns:
-            list: List of compatible unit strings
-        """
-        try:
-            unit = ureg(unit_str)
-            dimension = unit.dimensionality
-
-            # Get all units with the same dimensionality
-            compatible_units = []
-            for u in ureg._units:
-                try:
-                    if ureg(u).dimensionality == dimension:
-                        compatible_units.append(u)
-                except:
-                    # Skip units that cause errors
-                    pass
-
-            return compatible_units
-        except Exception as e:
-            raise ValueError(f"Error finding compatible units: {str(e)}")
-
-    def create_custom_unit(name, relation, system='custom'):
-        """
-        Create a custom unit
-
-        Args:
-            name (str): Name of the custom unit
-            relation (str): Definition relative to existing units (e.g., "1.852 * kilometer")
-            system (str): System to register the unit in
-
-        Returns:
-            str: Confirmation message
-        """
-        try:
-            # First evaluate the relation to get a quantity
-            relation_quantity = evaluate_with_units(relation)
-
-            # Define the new unit
-            ureg.define(f'{name} = {relation_quantity.magnitude} * {relation_quantity.units} = {system}')
-
-            return f"Custom unit '{name}' created successfully"
-        except Exception as e:
-            raise ValueError(f"Error creating custom unit: {str(e)}")
-
-    def get_unit_dimension(unit_str):
-        """
-        Get the physical dimension of a unit
-
-        Args:
-            unit_str (str): The unit to check
-
-        Returns:
-            dict: Dimension information
-        """
-        try:
-            unit = ureg(unit_str)
-            dimension = unit.dimensionality
-
-            # Convert dimensional mapping to dictionary
-            dim_dict = {}
-            for dim, power in dimension.items():
-                dim_dict[str(dim)] = power
-
-            return {
-                'unit': unit_str,
-                'dimensions': dim_dict,
-                'is_base_unit': len(dim_dict) == 1 and list(dim_dict.values())[0] == 1
+        # Engineering unit systems
+        self.unit_systems = {
+            'SI': {
+                'length': 'm',
+                'mass': 'kg',
+                'time': 's',
+                'temperature': 'K',
+                'force': 'N',
+                'pressure': 'Pa',
+                'energy': 'J'
+            },
+            'Imperial': {
+                'length': 'ft',
+                'mass': 'lb',
+                'time': 's',
+                'temperature': 'degF',
+                'force': 'lbf',
+                'pressure': 'psi',
+                'energy': 'BTU'
+            },
+            'CGS': {
+                'length': 'cm',
+                'mass': 'g',
+                'time': 's',
+                'temperature': 'K',
+                'force': 'dyn',
+                'pressure': 'dyn/cm^2',
+                'energy': 'erg'
             }
-        except Exception as e:
-            raise ValueError(f"Error getting unit dimension: {str(e)}")
+        }
 
-    def check_unit_validity(unit_str):
-        """
-        Check if a unit string is valid
-
-        Args:
-            unit_str (str): The unit string to check
-
-        Returns:
-            bool: True if valid, False otherwise
-        """
+    def _add_custom_units(self):
+        """Add custom engineering units to the registry"""
         try:
-            ureg(unit_str)
+            # Common engineering units
+            self.ureg.define('psi = pound_force_per_square_inch')
+            self.ureg.define('ksi = 1000 * psi')
+            self.ureg.define('GPa = 1e9 * pascal')
+            self.ureg.define('MPa = 1e6 * pascal')
+            self.ureg.define('kPa = 1000 * pascal')
+
+            # Thermal units
+            self.ureg.define('BTU = british_thermal_unit')
+            self.ureg.define('cal = calorie')
+            self.ureg.define('kcal = 1000 * calorie')
+
+            # Electrical units
+            self.ureg.define('mA = 0.001 * ampere')
+            self.ureg.define('kA = 1000 * ampere')
+            self.ureg.define('mV = 0.001 * volt')
+            self.ureg.define('kV = 1000 * volt')
+            self.ureg.define('MV = 1e6 * volt')
+            self.ureg.define('mohm = 0.001 * ohm')
+            self.ureg.define('kohm = 1000 * ohm')
+            self.ureg.define('Mohm = 1e6 * ohm')
+
+            # Flow and velocity units
+            self.ureg.define('gpm = gallon / minute')
+            self.ureg.define('cfm = foot^3 / minute')
+            self.ureg.define('lpm = liter / minute')
+
+            # Additional engineering units
+            self.ureg.define('rpm = revolution / minute')
+            self.ureg.define('g_force = 9.80665 * meter / second^2')
+
+        except Exception as e:
+            print(f"Warning: Could not define custom unit: {e}")
+
+    def set_user_preferences(self, preferences: Dict[str, str]):
+        """Set user's preferred units for different quantities (REQ-032)"""
+        for quantity, unit in preferences.items():
+            if self.is_valid_unit(unit):
+                self.user_preferences[quantity] = unit
+            else:
+                raise ValueError(f"Invalid unit '{unit}' for quantity '{quantity}'")
+
+    def get_user_preference(self, quantity: str) -> str:
+        """Get user's preferred unit for a quantity"""
+        return self.user_preferences.get(quantity, self.default_units.get(quantity, ''))
+
+    def is_valid_unit(self, unit_str: str) -> bool:
+        """Check if a unit string is valid"""
+        try:
+            self.ureg(unit_str)
             return True
         except:
             return False
 
-    def common_unit_categories():
+    def parse_quantity(self, quantity_str: str) -> Tuple[float, str]:
         """
-        Get a list of common unit categories and examples
+        Parse a string containing a number and unit
+        Returns (value, unit) tuple
+        """
+        # Enhanced regex to handle scientific notation and complex expressions
+        pattern = r'^([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)\s*(.*)$'
+        match = re.match(pattern, quantity_str.strip())
 
-        Returns:
-            dict: Unit categories and examples
+        if match:
+            value_str = match.group(1)
+            unit_str = match.group(2).strip()
+
+            try:
+                value = float(value_str)
+                return value, unit_str
+            except ValueError:
+                raise ValueError(f"Invalid number format: {value_str}")
+        else:
+            raise ValueError(f"Unable to parse quantity: {quantity_str}")
+
+    def convert_unit(self, value: Union[float, str], from_unit: str,
+                     to_unit: str) -> Dict[str, Any]:
         """
-        return {
-            'length': ['meter', 'kilometer', 'centimeter', 'millimeter', 'inch', 'foot', 'yard', 'mile'],
-            'mass': ['gram', 'kilogram', 'milligram', 'pound', 'ounce', 'ton'],
-            'time': ['second', 'minute', 'hour', 'day', 'week', 'month', 'year'],
-            'temperature': ['kelvin', 'celsius', 'fahrenheit'],
-            'electric_current': ['ampere', 'milliampere', 'kiloampere'],
-            'amount_of_substance': ['mole', 'millimole', 'micromole'],
-            'luminous_intensity': ['candela'],
-            'area': ['square_meter', 'square_kilometer', 'hectare', 'acre', 'square_foot'],
-            'volume': ['cubic_meter', 'liter', 'milliliter', 'gallon', 'quart', 'pint', 'cup'],
-            'speed': ['meter_per_second', 'kilometer_per_hour', 'mile_per_hour', 'knot'],
-            'pressure': ['pascal', 'kilopascal', 'bar', 'atmosphere', 'psi'],
-            'energy': ['joule', 'kilojoule', 'calorie', 'kilocalorie', 'watt_hour', 'electron_volt'],
-            'power': ['watt', 'kilowatt', 'horsepower'],
-            'force': ['newton', 'pound_force', 'kilogram_force'],
-            'frequency': ['hertz', 'kilohertz', 'megahertz', 'gigahertz'],
-            'angle': ['radian', 'degree', 'arcminute', 'arcsecond'],
-            'data': ['bit', 'byte', 'kilobyte', 'megabyte', 'gigabyte', 'terabyte']
+        Convert a value from one unit to another with validation
+        (REQ-003)
+        """
+        try:
+            # Handle string input with embedded units
+            if isinstance(value, str):
+                parsed_value, parsed_unit = self.parse_quantity(value)
+                if parsed_unit and not from_unit:
+                    from_unit = parsed_unit
+                value = parsed_value
+
+            # Create cache key
+            cache_key = f"{value}_{from_unit}_{to_unit}"
+            if cache_key in self._conversion_cache:
+                return self._conversion_cache[cache_key]
+
+            # Perform conversion
+            source_quantity = value * self.ureg(from_unit)
+            converted_quantity = source_quantity.to(to_unit)
+
+            result = {
+                'value': float(converted_quantity.magnitude),
+                'unit': to_unit,
+                'original_value': value,
+                'original_unit': from_unit,
+                'formatted': f"{converted_quantity.magnitude:.6g} {to_unit}",
+                'dimensionality': str(source_quantity.dimensionality),
+                'conversion_factor': float(converted_quantity.magnitude / value) if value != 0 else None
+            }
+
+            # Cache the result
+            self._conversion_cache[cache_key] = result
+            return result
+
+        except pint.errors.DimensionalityError as e:
+            return {
+                'error': f"Incompatible dimensions: cannot convert {from_unit} to {to_unit}",
+                'type': 'dimensionality_error',
+                'from_unit': from_unit,
+                'to_unit': to_unit,
+                'value': value
+            }
+        except Exception as e:
+            return {
+                'error': str(e),
+                'type': 'conversion_error',
+                'from_unit': from_unit,
+                'to_unit': to_unit,
+                'value': value
+            }
+
+    def auto_convert_to_preferred(self, value: Union[float, str],
+                                  unit: str = '') -> Dict[str, Any]:
+        """
+        Automatically convert to user's preferred units (REQ-032)
+        """
+        try:
+            # Parse input if it's a string
+            if isinstance(value, str):
+                parsed_value, parsed_unit = self.parse_quantity(value)
+                if parsed_unit:
+                    unit = parsed_unit
+                value = parsed_value
+
+            if not unit:
+                return {'error': 'No unit specified', 'value': value}
+
+            # Get the dimensionality
+            quantity = value * self.ureg(unit)
+            dimensionality = quantity.dimensionality
+
+            # Find the preferred unit for this dimensionality
+            preferred_unit = self._find_preferred_unit_for_dimensionality(dimensionality)
+
+            if preferred_unit and preferred_unit != unit:
+                return self.convert_unit(value, unit, preferred_unit)
+            else:
+                return {
+                    'value': value,
+                    'unit': unit,
+                    'formatted': f"{value:.6g} {unit}",
+                    'already_preferred': True
+                }
+
+        except Exception as e:
+            return {
+                'error': str(e),
+                'value': value,
+                'unit': unit
+            }
+
+    def _find_preferred_unit_for_dimensionality(self, dimensionality) -> Optional[str]:
+        """Find the user's preferred unit for a given dimensionality"""
+        for quantity, unit in self.user_preferences.items():
+            try:
+                unit_dimensionality = self.ureg(unit).dimensionality
+                if unit_dimensionality == dimensionality:
+                    return unit
+            except:
+                continue
+        return None
+
+    def check_unit_consistency(self, expressions: List[str]) -> Dict[str, Any]:
+        """
+        Check unit consistency across multiple expressions (REQ-003)
+        """
+        try:
+            parsed_expressions = []
+            dimensionalities = []
+
+            for expr in expressions:
+                # Simple parsing - in practice would need more sophisticated expression parsing
+                parts = expr.split()
+                if len(parts) >= 2:
+                    try:
+                        value = float(parts[0])
+                        unit = ' '.join(parts[1:])
+                        quantity = value * self.ureg(unit)
+                        parsed_expressions.append({
+                            'expression': expr,
+                            'value': value,
+                            'unit': unit,
+                            'dimensionality': quantity.dimensionality
+                        })
+                        dimensionalities.append(quantity.dimensionality)
+                    except:
+                        parsed_expressions.append({
+                            'expression': expr,
+                            'error': 'Could not parse'
+                        })
+
+            # Check if all dimensionalities are the same
+            unique_dims = list(set(str(d) for d in dimensionalities))
+            consistent = len(unique_dims) <= 1
+
+            return {
+                'consistent': consistent,
+                'expressions': parsed_expressions,
+                'unique_dimensionalities': unique_dims,
+                'message': 'Units are consistent' if consistent else 'Unit inconsistency detected'
+            }
+
+        except Exception as e:
+            return {
+                'error': str(e),
+                'expressions': expressions
+            }
+
+    def get_compatible_units(self, unit: str, limit: int = 20) -> List[Dict[str, str]]:
+        """Get a list of units compatible with the given unit"""
+        try:
+            base_quantity = self.ureg(unit)
+            target_dimensionality = base_quantity.dimensionality
+
+            compatible = []
+
+            # Search through common units
+            common_units = self._get_common_units_list()
+
+            for unit_name in common_units:
+                try:
+                    test_quantity = self.ureg(unit_name)
+                    if test_quantity.dimensionality == target_dimensionality:
+                        # Calculate conversion factor
+                        converted = base_quantity.to(unit_name)
+                        factor = float(converted.magnitude)
+
+                        compatible.append({
+                            'unit': unit_name,
+                            'name': self._get_unit_name(unit_name),
+                            'conversion_factor': factor,
+                            'example': f"1 {unit} = {factor:.6g} {unit_name}"
+                        })
+
+                        if len(compatible) >= limit:
+                            break
+                except:
+                    continue
+
+            return compatible
+
+        except Exception as e:
+            return []
+
+    def _get_common_units_list(self) -> List[str]:
+        """Get a list of commonly used units"""
+        return [
+            # Length
+            'm', 'cm', 'mm', 'km', 'in', 'ft', 'yd', 'mile', 'mil', 'micron',
+            # Mass
+            'kg', 'g', 'mg', 'lb', 'oz', 'ton', 'slug',
+            # Time
+            's', 'min', 'hr', 'day', 'week', 'month', 'year', 'ms', 'us', 'ns',
+            # Force
+            'N', 'kN', 'MN', 'lbf', 'kip', 'dyn',
+            # Pressure
+            'Pa', 'kPa', 'MPa', 'GPa', 'psi', 'ksi', 'bar', 'atm', 'torr', 'mmHg',
+            # Energy
+            'J', 'kJ', 'MJ', 'cal', 'kcal', 'BTU', 'Wh', 'kWh', 'eV',
+            # Power
+            'W', 'kW', 'MW', 'hp', 'BTU/hr',
+            # Electrical
+            'V', 'mV', 'kV', 'A', 'mA', 'kA', 'ohm', 'kohm', 'Mohm',
+            'F', 'mF', 'uF', 'nF', 'pF', 'H', 'mH', 'uH', 'nH',
+            # Temperature
+            'K', 'degC', 'degF', 'degR',
+            # Angle
+            'rad', 'deg', 'arcmin', 'arcsec', 'rev',
+            # Area
+            'm^2', 'cm^2', 'mm^2', 'km^2', 'in^2', 'ft^2', 'acre', 'hectare',
+            # Volume
+            'm^3', 'cm^3', 'mm^3', 'L', 'mL', 'gal', 'qt', 'pt', 'cup', 'ft^3', 'in^3',
+            # Velocity
+            'm/s', 'km/h', 'mph', 'ft/s', 'knot',
+            # Acceleration
+            'm/s^2', 'ft/s^2', 'g_force',
+            # Frequency
+            'Hz', 'kHz', 'MHz', 'GHz', 'rpm',
+            # Flow rate
+            'm^3/s', 'L/s', 'L/min', 'gpm', 'cfm'
+        ]
+
+    def _get_unit_name(self, unit_symbol: str) -> str:
+        """Get the full name of a unit from its symbol"""
+        unit_names = {
+            'm': 'meter', 'cm': 'centimeter', 'mm': 'millimeter', 'km': 'kilometer',
+            'in': 'inch', 'ft': 'foot', 'yd': 'yard', 'mile': 'mile',
+            'kg': 'kilogram', 'g': 'gram', 'mg': 'milligram', 'lb': 'pound',
+            's': 'second', 'min': 'minute', 'hr': 'hour', 'day': 'day',
+            'N': 'newton', 'lbf': 'pound-force', 'Pa': 'pascal', 'psi': 'pounds per square inch',
+            'J': 'joule', 'cal': 'calorie', 'BTU': 'British thermal unit',
+            'W': 'watt', 'hp': 'horsepower', 'V': 'volt', 'A': 'ampere',
+            'ohm': 'ohm', 'F': 'farad', 'H': 'henry', 'K': 'kelvin',
+            'degC': 'degree Celsius', 'degF': 'degree Fahrenheit',
+            'rad': 'radian', 'deg': 'degree', 'Hz': 'hertz'
         }
+        return unit_names.get(unit_symbol, unit_symbol)
+
+    def get_unit_system_conversion(self, value: float, unit: str,
+                                   target_system: str) -> Dict[str, Any]:
+        """Convert units to a specific unit system (SI, Imperial, CGS)"""
+        try:
+            if target_system not in self.unit_systems:
+                return {'error': f"Unknown unit system: {target_system}"}
+
+            # Determine the quantity type
+            quantity = value * self.ureg(unit)
+            dimensionality = quantity.dimensionality
+
+            # Find the appropriate unit in the target system
+            target_unit = None
+            for qty_type, sys_unit in self.unit_systems[target_system].items():
+                try:
+                    sys_quantity = self.ureg(sys_unit)
+                    if sys_quantity.dimensionality == dimensionality:
+                        target_unit = sys_unit
+                        break
+                except:
+                    continue
+
+            if target_unit:
+                return self.convert_unit(value, unit, target_unit)
+            else:
+                return {
+                    'error': f"No equivalent unit found in {target_system} system",
+                    'dimensionality': str(dimensionality)
+                }
+
+        except Exception as e:
+            return {
+                'error': str(e),
+                'value': value,
+                'unit': unit,
+                'target_system': target_system
+            }
+
+    def evaluate_expression_with_units(self, expression: str) -> Dict[str, Any]:
+        """
+        Evaluate mathematical expressions containing units
+        Integrates with the enhanced math engine (REQ-003)
+        """
+        try:
+            # Use pint's capability to evaluate expressions
+            result_quantity = self.ureg.parse_expression(expression)
+
+            return {
+                'result': float(result_quantity.magnitude),
+                'unit': str(result_quantity.units),
+                'dimensionality': str(result_quantity.dimensionality),
+                'formatted': f"{result_quantity.magnitude:.6g} {result_quantity.units}",
+                'expression': expression
+            }
+
+        except Exception as e:
+            return {
+                'error': str(e),
+                'expression': expression
+            }
+
+    def create_custom_unit(self, name: str, definition: str,
+                           description: str = '') -> Dict[str, Any]:
+        """Create a custom unit definition (REQ-031)"""
+        try:
+            # Validate the definition by trying to create the unit
+            test_quantity = self.ureg.parse_expression(definition)
+
+            # Define the new unit
+            unit_definition = f"{name} = {definition}"
+            if description:
+                unit_definition += f" = {description}"
+
+            self.ureg.define(unit_definition)
+
+            return {
+                'name': name,
+                'definition': definition,
+                'description': description,
+                'dimensionality': str(test_quantity.dimensionality),
+                'status': 'created'
+            }
+
+        except Exception as e:
+            return {
+                'error': str(e),
+                'name': name,
+                'definition': definition
+            }
+
+    def get_unit_info(self, unit: str) -> Dict[str, Any]:
+        """Get detailed information about a unit"""
+        try:
+            quantity = self.ureg(unit)
+
+            return {
+                'unit': unit,
+                'dimensionality': str(quantity.dimensionality),
+                'base_units': str(quantity.to_base_units()),
+                'magnitude': 1.0,
+                'is_base_unit': len(quantity.dimensionality) == 1,
+                'compatible_units': [u['unit'] for u in self.get_compatible_units(unit, 10)]
+            }
+
+        except Exception as e:
+            return {
+                'error': str(e),
+                'unit': unit
+            }
+
+
+# Global instance for use in Flask app
+unit_converter = EnhancedUnitConverter()
